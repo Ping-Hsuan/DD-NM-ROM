@@ -1,8 +1,13 @@
 import collections
+import numpy as np
 import scipy as sp
 
+from typing import Any, Dict, List
 
-def sp_diag(x):
+
+def sp_diag(
+  x: np.ndarray
+) -> sp.sparse.spmatrix:
   '''
   Helper function to compute sparse diagonal matrix.
 
@@ -12,9 +17,14 @@ def sp_diag(x):
   output:
   D: sparse diagonal matrix with diagonal vec
   '''
+  if (x.ndim != 1):
+    raise ValueError("A 1D array is needed to build a sparse diagonal matrix.")
   return sp.sparse.spdiags(x, 0, x.size, x.size)
 
-def map_nested_dict(obj, fun):
+def map_nested_dict(
+  obj: Any,
+  fun: callable
+) -> Any:
   if isinstance(obj, collections.Mapping):
     return {k: map_nested_dict(v, fun) for (k, v) in obj.items()}
   else:
@@ -23,7 +33,10 @@ def map_nested_dict(obj, fun):
     else:
       return fun(obj)
 
-def face_splitting(A, B):
+def face_splitting(
+  A: np.ndarray,
+  B: np.ndarray
+) -> np.ndarray:
   '''
   Compute face-splitting product of matrices A and B. Useful in the following identity:
       for matrices A, B and vectors x, y
@@ -40,3 +53,14 @@ def face_splitting(A, B):
       C: (m, np) array
   '''
   return sp.linalg.khatri_rao(A.T, B.T).T
+
+def generate_combs(
+  arrays_1d: List[np.ndarray]
+) -> np.ndarray:
+  combs = np.meshgrid(*arrays_1d, indexing='ij')
+  return np.array(combs).T.reshape(-1,len(arrays_1d))
+
+def compute_stats(
+  x: np.ndarray
+) -> Dict[str, float]:
+  return {"mean": float(np.mean(x)), "std": float(np.std(x))}

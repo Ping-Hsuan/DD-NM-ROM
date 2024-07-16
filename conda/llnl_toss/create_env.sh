@@ -8,8 +8,7 @@
 # Inputs
 # -------------------------------------
 env_file=env.yml
-anaconda_dir=/Users/zanardi1/Workspace/Applications/miniconda3
-#/collab/usr/gapps/python/${SYS_TYPE}/anaconda3-2024.02
+anaconda_dir=/collab/usr/gapps/python/${SYS_TYPE}/anaconda3-2024.02
 # -------------------------------------
 
 if [ ! -d ${anaconda_dir} ]; then

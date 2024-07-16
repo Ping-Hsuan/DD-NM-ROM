@@ -3,9 +3,10 @@ import copy
 import numpy as np
 import scipy.sparse as sp
 
-from . import activation as act_mod
 from dd_nm_rom.ops import sp_diag
 from dd_nm_rom.rom.utils import hyper_red as hr
+
+from . import activation as act_mod
 
 
 class Block(object):
@@ -47,8 +48,12 @@ class Block(object):
     for k in ("scale", "ov_scale"):
       self._w[k+"_diag"] = sp_diag(self._w[k])
 
-  def __call__(self, x):
-    return self.fun_jac(x)
+  def __call__(self, x, with_jac=True):
+    return self.fun_jac(x) if with_jac else self.fun(x)
+
+  @abc.abstractmethod
+  def fun(self, x):
+    pass
 
   @abc.abstractmethod
   def fun_jac(self, x):
@@ -69,10 +74,17 @@ class Encoder(Block):
     self._w["W1_scale"] = self._w["W1"] @ self._w["ov_scale_diag"]
     self._w["b1_ref"] = self._w["b1"] - self._w["W1_scale"] @ self._w["ref"]
 
+  def fun(self, x):
+    # Apply encoder
+    z = self.w["W1_scale"] @ x + self.w["b1_ref"]
+    z = self.activation(z, with_jac=False)
+    z = self.w["W2"] @ z
+    return z
+
   def fun_jac(self, x):
     # Apply encoder
     z = self.w["W1_scale"] @ x + self.w["b1_ref"]
-    z, dz = self.activation(z)
+    z, dz = self.activation(z, with_jac=True)
     z = self.w["W2"] @ z
     jac = self.w["W2"] @ dz @ self.w["W1_scale"]
     # Return output and Jacobian
@@ -147,10 +159,17 @@ class Decoder(Block):
     else:
       self._activation_hr = self._activation
 
+  def fun(self, z):
+    # Apply decoder
+    x = self.w["W1"] @ z + self.w["b1"]
+    x = self.activation(x, with_jac=False)
+    x = self.w["scale_W2"] @ x + self.w["ref"]
+    return x
+
   def fun_jac(self, z):
     # Apply decoder
     x = self.w["W1"] @ z + self.w["b1"]
-    x, dx = self.activation(x)
+    x, dx = self.activation(x, with_jac=True)
     x = self.w["scale_W2"] @ x + self.w["ref"]
     jac = self.w["scale_W2"] @ dx @ self.w["W1"]
     # Return output and Jacobian
@@ -172,6 +191,9 @@ class Autoencoder(object):
     # Layers
     self.decoder = Decoder(self.config["decoder"])
     self.encoder = Encoder(self.config["encoder"])
+
+  def __call__(self, x):
+    return self.decoder(self.encoder(x, with_jac=False), with_jac=False)
 
   def set_hr_mode(
     self,

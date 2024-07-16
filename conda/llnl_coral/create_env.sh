@@ -20,9 +20,6 @@
 # Versions
 v_cuda=11.8.0
 v_opence=1.9.1
-v_torch=2.0.1
-v_torch_sparse=0.6.17
-v_torch_scatter=2.1.1
 # Paths
 env_name=opence-${v_opence}-cuda-${v_cuda}
 anaconda_dir=/usr/workspace/${USER}/Applications/anaconda/${SYS_TYPE}
@@ -57,18 +54,20 @@ conda config --env --prepend channels file://${lc_channel}
 
 # Install needed packages
 cuda_build=cuda${v_cuda:0:-2}_py39_1
-conda install -y pytorch=${v_torch}=${cuda_build}
-conda install -y pytorch_sparse=${v_torch_sparse}=${cuda_build}
-conda install -y pytorch_scatter=${v_torch_scatter}=${cuda_build}
-conda install -y matplotlib scikit-learn pandas h5py
+conda install -y h5py numpy=1.26.4 scipy=1.13.1 silx
+conda install -y pytorch=2.0.1=${cuda_build}
+conda install -y pytorch_sparse=0.6.17=${cuda_build}
+conda install -y pytorch_scatter=2.1.1=${cuda_build}
 pip install \
-  sparselinear \
+  absl-py \
+  dask \
   dill \
-  ipykernel \
-  jupyterlab \
-  notebook \
-  numpy \
-  scipy \
-  silx \
-  tqdm \
-  pydoe
+  joblib \
+  matplotlib \
+  pandas \
+  pydoe \
+  scikit-learn \
+  simpy \
+  sparselinear==0.0.5 \
+  threadpoolctl \
+  tqdm

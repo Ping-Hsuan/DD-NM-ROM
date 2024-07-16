@@ -2,8 +2,10 @@ import numpy as np
 import scipy.sparse as sp
 
 from time import time
-from dd_nm_rom.ops import sp_diag
-from dd_nm_rom.solvers import Newton
+from dd_nm_rom import ops, solvers
+from typing import Dict, List, Tuple, Union
+
+from .elements import *
 
 
 class Burgers2D(object):
@@ -12,13 +14,13 @@ class Burgers2D(object):
   determined by x_lim x y_lim using finite differences.
 
   inputs:
-  nx: number of grid points in x direction
-  ny: number of grid points in y direction
+  nx: number of grid points in x method
+  ny: number of grid points in y method
   x_lim: x_lim[0] = x-coordinate of left boundary
          x_lim[1] = x-coordinate of right boundary
   y_lim: y_lim[0] = y-coordinate of bottom boundary
          y_lim[1] = y-coordinate of top boundary
-  viscosity: positive parameter corresponding to viscosity
+  nu: positive parameter corresponding to nu
   self.u_bc: Dirichlet BC function for u states
   self.v_bc: Dirichlet BC function for v states
 
@@ -29,150 +31,146 @@ class Burgers2D(object):
   solve: solves for the state u and v using Newton"s method.
   """
 
+  # Initialization
+  # ===================================
   def __init__(
     self,
-    nx,
-    ny,
-    x_lim,
-    y_lim,
-    viscosity
+    mesh: Union[MeshDD, MeshMono],
+    nu: float
+  ) -> None:
+    # Mesh
+    self.mesh = mesh
+    # Viscosity
+    self.nu = nu
+    # Integration
+    self.steady = True
+    self.x_old = None
+    self.dt = 0.0
+    # Runtime
+    self.runtime = {k: 0.0 for k in ("total", "linalg", "rhs_jac")}
+    self.built = False
+
+  # Building
+  # ===================================
+  def is_built(self) -> None:
+    self.mesh.is_built()
+    if (not self.built):
+      raise ValueError(
+        "FOM model not built. Please, call 'build' method first."
+      )
+
+  def build(
+    self,
+    field
   ):
-    # Grid
-    # -------------
-    # > Limits
-    self.x_lim = x_lim
-    self.y_lim = y_lim
-    # > Size
-    self.nx = nx
-    self.ny = ny
-    self.nxy = nx*ny
-    # > Spacing
-    self.hx = (x_lim[1]-x_lim[0])/(nx+1)
-    self.hy = (y_lim[1]-y_lim[0])/(ny+1)
-    self.hxy = self.hx*self.hy
-    # > Points
-    self.x = np.linspace(x_lim[0], x_lim[1], nx+2)[1:-1]
-    self.y = np.linspace(y_lim[0], y_lim[1], ny+2)[1:-1]
-    # PDE paramaters
-    # -------------
-    self.viscosity = viscosity
-    # Differential operators
-    # -------------
-    self.build_diff_ops()
-    # Run time
-    # -------------
-    self.runtime = 0.0
-
-  def build_diff_ops(self):
-    # Vectors/Identities
-    ex, Ix = np.ones(self.nx), sp.eye(self.nx)
-    ey, Iy = np.ones(self.ny), sp.eye(self.ny)
-    # Backward difference matrices
-    Bx = sp.spdiags([-ex, ex], [-1, 1], self.nx, self.nx)
-    By = sp.spdiags([-ey, ey], [-1, 1], self.ny, self.ny)
-    Bx = -0.5/self.hx * sp.kron(Iy, Bx).tocsr()
-    By = -0.5/self.hy * sp.kron(By, Ix).tocsr()
-    # Centered difference matrices
-    Cx = sp.spdiags([ex, -2*ex, ex], [-1, 0, 1], self.nx, self.nx)
-    Cy = sp.spdiags([ey, -2*ey, ey], [-1, 0, 1], self.ny, self.ny)
-    Cx = self.viscosity/(self.hx*self.hx) * sp.kron(Iy, Cx).tocsr()
-    Cy = self.viscosity/(self.hy*self.hy) * sp.kron(Cy, Ix).tocsr()
-    # Store matrices
-    self.diff_ops = {"Bx": Bx, "By": By, "Cx": Cx, "Cy": Cy}
-
-  def set_bc(self, u_bc, v_bc):
-    self.u_bc = u_bc
-    self.v_bc = v_bc
-    # Vectors
-    ex = np.ones(self.nx)
-    ey = np.ones(self.ny)
-    ex_1_0s = np.concatenate((np.ones(1), np.zeros(self.nx-1)))
-    ey_1_0s = np.concatenate((np.ones(1), np.zeros(self.ny-1)))
-    ex_0s_1 = np.concatenate((np.zeros(self.nx-1), np.ones(1)))
-    ey_0s_1 = np.concatenate((np.zeros(self.ny-1), np.ones(1)))
+    self.mesh.is_built()
     # BC
-    self.bc = {}
-    for z_k in ("u", "v"):
-      z_bc = self.u_bc if (z_k == "u") else self.v_bc
-      # > Compose
-      bc_xl = np.kron(z_bc(self.x_lim[0]*ey, self.y), ex_1_0s)
-      bc_xr = np.kron(z_bc(self.x_lim[1]*ey, self.y), ex_0s_1)
-      bc_yb = np.kron(ey_1_0s, z_bc(self.x, self.y_lim[0]*ex))
-      bc_yt = np.kron(ey_0s_1, z_bc(self.x, self.y_lim[1]*ex))
-      # > Compute
-      bc_x1 = -(0.5/self.hx)*(bc_xl - bc_xr)
-      bc_y1 = -(0.5/self.hy)*(bc_yb - bc_yt)
-      bc_x2 = (self.viscosity/(self.hx*self.hx))*(bc_xl + bc_xr)
-      bc_y2 = (self.viscosity/(self.hy*self.hy))*(bc_yb + bc_yt)
-      # > Store
-      self.bc[z_k] = {
-        "x": [bc_x1, bc_x2],
-        "y": [bc_y1, bc_y2]
-      }
+    # -------------
+    bc_cls = NeumannBC if (field.bc_type == "neumann") else DirichletBC
+    self.bc = bc_cls(
+      nu=self.nu,
+      mesh=self.mesh,
+      funval=field.get_bc_funval()
+    )
+    self.bc.build()
+    self.bc_f = self.bc.f
+    # Operators
+    # -------------
+    self.diff_ops = DiffOperators(
+      nu=self.nu,
+      bc=self.bc,
+      mesh=self.mesh
+    )
+    self.diff_ops.build()
+    self.ops = self.diff_ops.ops
+    self.ops_names = list(self.ops.keys())
+    self.iden = sp.eye(self.get_ndof()).tocsr()
+    self.built = True
 
-  def get_ndof(self):
-    return 2*self.nxy
+  def get_ndof(self) -> int:
+    return 2*self.mesh.nxy
 
-  def rhs(self, x):
-    """
-    Compute residual of discretized PDE.
+  # RHS/Jacobian
+  # ===================================
+  def rhs_jac(
+    self,
+    x: np.ndarray
+  ) -> Tuple[np.ndarray, sp.spmatrix]:
+    start = time()
+    rhs, jac = self._rhs_jac(x)
+    # Backward Euler for integration
+    if (not self.steady):
+      rhs = x - self.x_old - self.dt*rhs
+      jac = self.iden - self.dt*jac
+    delta = time()-start
+    self.runtime["total"] += delta
+    self.runtime["rhs_jac"] += delta
+    return rhs, jac
 
-    inputs:
-    u: (nx*ny,) vector
-    v: (nx*ny,) vector
-
-    ouputs:
-    res: (2*nx*ny) vector
-    """
+  def _rhs_jac(
+    self,
+    x: np.ndarray
+  ) -> Tuple[np.ndarray, sp.spmatrix]:
+    # Extract u and v
+    uv, uv_diag = self.extract_uv(x)
+    # Action of advection operator on vectors
+    adv_act = {}
+    for axis in ("x", "y"):
+      adv_act[axis] = {}
+      for k in ("u", "v"):
+        adv_act[axis][k] = self.ops[f"A{axis}"] @ uv[k] \
+                         - self.bc_f[k]["A"][axis]
+    # Compute RHS
     dx = []
-    uv = {"u": x[:self.nxy], "v": x[self.nxy:]}
     for k in ("u", "v"):
-      dx_k = uv["u"]*(self.diff_ops["Bx"] @ uv[k] - self.bc[k]["x"][0]) \
-           + uv["v"]*(self.diff_ops["By"] @ uv[k] - self.bc[k]["y"][0]) \
-           + self.diff_ops["Cx"] @ uv[k] + self.bc[k]["x"][1] \
-           + self.diff_ops["Cy"] @ uv[k] + self.bc[k]["y"][1]
+      dx_k = uv_diag["u"] @ adv_act["x"][k] \
+           + uv_diag["v"] @ adv_act["y"][k] \
+           + self.ops["D"] @ uv[k] + self.bc_f[k]["D"]
       dx.append(dx_k)
-    return np.concatenate(dx)
-
-  def jac(self, x):
-    """
-    Compute residual jacobian of discretized PDE.
-
-    inputs:
-    u: (nx*ny,) vector
-    v: (nx*ny,) vector
-
-    ouputs:
-    jac: (2*nx*ny, 2*nx*ny) jacobian matrix
-    """
-    u, v = x[:self.nxy], x[self.nxy:]
-    jac_xx = sp_diag(u) @ self.diff_ops["Bx"] \
-           + sp_diag(v) @ self.diff_ops["By"] \
-           + self.diff_ops["Cx"] + self.diff_ops["Cy"]
-    jac_uu = sp_diag(self.diff_ops["Bx"] @ u - self.bc["u"]["x"][0]) + jac_xx
-    jac_uv = sp_diag(self.diff_ops["By"] @ u - self.bc["u"]["y"][0])
-    jac_vu = sp_diag(self.diff_ops["Bx"] @ v - self.bc["v"]["x"][0])
-    jac_vv = sp_diag(self.diff_ops["By"] @ v - self.bc["v"]["y"][0]) + jac_xx
-    return sp.bmat(
+    rhs = np.concatenate(dx)
+    # Compute Jacobian
+    jac_xx = uv_diag["u"] @ self.ops["Ax"] \
+           + uv_diag["v"] @ self.ops["Ay"] \
+           + self.ops["D"]
+    jac_uu = ops.sp_diag(adv_act["x"]["u"]) + jac_xx
+    jac_uv = ops.sp_diag(adv_act["y"]["u"])
+    jac_vu = ops.sp_diag(adv_act["x"]["v"])
+    jac_vv = ops.sp_diag(adv_act["y"]["v"]) + jac_xx
+    jac = sp.bmat(
       [[jac_uu, jac_uv],
        [jac_vu, jac_vv]],
       format="csr"
     )
-
-  def rhs_jac(self, x):
-    start = time()
-    rhs, jac = self.rhs(x), self.jac(x)
-    self.runtime += time()-start
     return rhs, jac
 
+  def extract_uv(
+    self,
+    x: np.ndarray,
+    diag: bool = True
+  ) -> Union[
+    Tuple[Dict[str, np.ndarray], Dict[str, np.ndarray]],
+    Dict[str, np.ndarray]
+  ]:
+    uv = {"u": x[:self.mesh.nxy], "v": x[self.mesh.nxy:]}
+    if diag:
+      uv_diag = ops.map_nested_dict(uv, ops.sp_diag)
+      return uv, uv_diag
+    else:
+      return uv
+
+  # Solution
+  # ===================================
   def solve(
     self,
-    x0=None,
-    tol=1e-8,
-    maxit=50,
-    stepsize_min=1e-10,
-    verbose=False
-  ):
+    x0: Union[np.ndarray, None] = None,
+    dt: float = 0.0,
+    nt: int = 1,
+    steady: bool = True,
+    tol: float = 1e-8,
+    maxit: int = 50,
+    stepsize_min: float = 1e-10,
+    verbose: bool = False
+  ) -> Tuple[Dict[str, np.ndarray], Union[np.ndarray, List[np.ndarray]], bool]:
     """
     Solves for the u and v states of the FOM using Newton"s method.
 
@@ -188,20 +186,27 @@ class Burgers2D(object):
     v: (nx*ny,) v final solution vector
     res_vecs: (it, nx*ny) array where res_vecs[i] is the PDE residual evaluated at the ith Newton iteration
     """
-    self.runtime = 0.0
+    self.is_built()
+    self.runtime = ops.map_nested_dict(self.runtime, lambda _: 0.0)
     # Initialize solution
     start = time()
     if (x0 is None):
       x0 = np.zeros(self.get_ndof())
-    self.runtime += time()-start
-    # Solve
-    solver = Newton(
+    self.runtime["total"] += time()-start
+    # Initialize solver
+    solver = solvers.Newton(
       model=self,
       tol=tol,
       maxit=maxit,
       stepsize_min=stepsize_min,
       verbose=verbose
     )
-    x, rhs, *_ = solver.solve(x0)
-    uv = {"u": x[:self.nxy], "v": x[self.nxy:]}
-    return uv, rhs
+    # Solving
+    self.steady = bool(steady)
+    if self.steady:
+      dt, nt = 0.0, 1
+    x, rhs, *_, flag = solver(x0, dt, nt)
+    # Return solution
+    uv = self.extract_uv(x, diag=False)
+    converged = True if (flag[-1] == 0) else False
+    return uv, rhs, converged

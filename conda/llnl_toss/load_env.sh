@@ -6,7 +6,7 @@
 # The present script loads the desired conda environment on LC
 # TOSS systems. Add the following function to your ~/.bashrc.
 
-load_conda_env() {
+load_conda_env_toss() {
   # Print a help message
   usage() {
     echo -e "Usage: load_conda_env [-h] [-d ANACONDA_DIR] [-n ENV_NAME]" 1>&2

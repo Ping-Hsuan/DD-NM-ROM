@@ -1,0 +1,45 @@
+{
+  "system": "coral",
+
+  "pathfile": "./../../../PATHS.txt",
+
+  "elements": ["interior", "port"],
+
+  "paths": {
+    "inpfile": "./../inputs/test_dd_nmrom.json",
+    "inp_dir": "./../inputs_parallel_test/",
+    "cmd_dir": "./../commands_parallel_test/"
+  },
+
+  "dim": {
+
+    "ranges": {
+      "interior": {
+        "latent_dim": {
+          "start": 8,
+          "stop": 21,
+          "step": 4
+        },
+        "row_nonzero": {
+          "start": 6,
+          "stop": 13,
+          "step": 6
+        }
+      },
+      "port": {
+        "latent_dim": {
+          "start": 6,
+          "stop": 11,
+          "step": 2
+        },
+        "row_nonzero": {
+          "start": 4,
+          "stop": 9,
+          "step": 4
+        }
+      }
+    }
+  
+  }
+
+}

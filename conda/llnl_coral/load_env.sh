@@ -7,7 +7,7 @@
 # on LC CORAL 1 systems (i.e., rzansel, lassen, sierra).
 # Add the following function to your ~/.bashrc.
 
-load_conda_env() {
+load_conda_env_coral() {
   # Print a help message
   usage() {
     echo -e "Usage: load_conda_env [-h] [-d ANACONDA_DIR] [-n ENV_NAME] [-c CUDA_VER]" 1>&2
@@ -51,7 +51,6 @@ load_conda_env() {
 
   # Activate the environment
   module load cuda/${cuda_ver}
-  export LD_LIBRARY_PATH=${anaconda_dir}/envs/${env_name}/lib:$LD_LIBRARY_PATH
   source ${anaconda_dir}/bin/activate
   conda activate ${env_name}
 }

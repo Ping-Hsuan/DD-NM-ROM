@@ -2,6 +2,7 @@ import numpy as np
 import scipy.sparse as sp
 
 from time import time
+
 from .basic import Solver
 
 
@@ -9,7 +10,7 @@ class Newton(Solver):
 
   def __init__(
     self,
-    model=None,
+    model,
     tol=1e-3,
     maxit=20,
     stepsize_min=1e-10,
@@ -55,21 +56,23 @@ class Newton(Solver):
     rhs_hist = [rhs]
     res_hist = [res]
     step_hist = [0.0]
+    self.model.runtime["total"] += time()-start
     # > Choose a sparse or dense linear solver depending on the problem
     solve = sp.linalg.spsolve if sp.issparse(jac) else np.linalg.solve
     # > Print first step
-    if self.verbose:
-      self.print_step(it, step_hist[-1], res_hist[-1], header=True)
-    self.model.runtime += time()-start
+    self.print_step(it, step_hist[-1], res_hist[-1], header=True)
     # Loop until convergence
     # ---------------
+    flag = 0
     while ((res_hist[-1] >= self.tol) and (it < self.maxit)):
       # > Initialize line search
       start = time()
       dx = solve(jac,-rhs)
-      eval_res_tol = lambda stepsize: (1.0 - 2e-4*stepsize)*res_hist[-1]
-      self.model.runtime += time()-start
+      delta = time()-start
+      self.model.runtime["total"] += delta
+      self.model.runtime["linalg"] += delta
       # > Armijo line search
+      eval_res_tol = lambda stepsize: (1.0 - 2e-4*stepsize)*res_hist[-1]
       x, rhs, jac, res, stepsize = self.line_search(x, dx, eval_res_tol)
       # > Update
       start = time()
@@ -77,31 +80,28 @@ class Newton(Solver):
       rhs_hist.append(rhs)
       res_hist.append(res)
       step_hist.append(stepsize)
+      self.model.runtime["total"] += time()-start
       # > Print step
-      if self.verbose:
-        self.print_step(it, step_hist[-1], res_hist[-1])
-      # > Check step size
+      self.print_step(it, step_hist[-1], res_hist[-1])
+      # > Check convergence
       if (stepsize < self.stepsize_min):
-        print(f"No stepsize found at iteration {it}.")
+        flag = 1
         break
-      self.model.runtime += time()-start
-    start = time()
-    # Check convergence
+      if np.isnan(res):
+        flag = 2
+        break
     if (it == self.maxit):
-      print(f"Newton solver failed to converge in {self.maxit} iterations.")
-    else:
-      print(
-        f"Newton solver terminated after {it} " \
-        f"iterations with residual norm of {res:1.4e}."
-      )
+      flag = 3
     # Return result
     # ---------------
-    res = (
+    start = time()
+    out = (
       x,
       np.vstack(rhs_hist),
       np.array(res_hist),
       np.array(step_hist),
-      it
+      np.array(it).reshape(1),
+      np.array(flag).reshape(1)
     )
-    self.model.runtime += time()-start
-    return res
+    self.model.runtime["total"] += time()-start
+    return out

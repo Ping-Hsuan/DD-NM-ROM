@@ -1,9 +1,2 @@
-__all__ = [
-  "Autoencoder",
-  "AutoencoderNP",
-  "MultiAutoencoderNP"
-]
-
-from .nn_numpy import AutoencoderNP
-from .nn_numpy import MultiAutoencoderNP
-from .nn_torch import Autoencoder
+from .nn_numpy import *
+from .nn_torch import *

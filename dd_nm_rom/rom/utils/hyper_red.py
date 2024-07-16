@@ -19,9 +19,10 @@ def get_col_indices(
   matrices = [matrices] if (not isinstance(matrices, list)) else matrices
   col_ind = set()
   for m in matrices:
-    m = sp.sparse.coo_matrix(m)
-    for row in row_ind:
-      col_ind = col_ind.union(set(m.col[m.row==row]))
+    if (m is not None):
+      m = sp.sparse.coo_matrix(m)
+      for row in row_ind:
+        col_ind = col_ind.union(set(m.col[m.row==row]))
   return np.sort(np.array(list(col_ind)))
 
 def select_sample_nodes(

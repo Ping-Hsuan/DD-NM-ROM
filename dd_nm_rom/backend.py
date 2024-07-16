@@ -1,33 +1,42 @@
+import os
 import torch
+import random
 import numpy as np
 import scipy as sp
+
+from typing import Any, Union
 
 
 # Global
 # -------------------------------------
-_VALID_BKD = {"torch"}
+_SEED = None
+_VALID_BKD = {"numpy", "torch"}
 _VALID_DEVICE = {"cpu", "cuda"}
 _VALID_DTYPE = {"float32", "float64"}
 
 # Setting
 # -------------------------------------
 def set(
-  backend="torch",
-  device="cpu",
-  device_idx=1,
-  nb_threads=4,
-  epsilon=1e-10,
-  floatx="float64"
-):
+  backend: str = "numpy",
+  device: str = "cpu",
+  device_idx: int = 0,
+  nb_threads: int = 8,
+  epsilon: Union[float, None] = 1e-10,
+  floatx: str = "float64",
+  seed: Union[int, None] = None
+) -> None:
   set_backend(backend)
+  set_seed(seed)
   set_device(device, device_idx, nb_threads)
   set_floatx(floatx)
   set_epsilon(epsilon)
 
-def get_backend():
+def get_backend() -> str:
   return _BKD
 
-def set_backend(value="torch"):
+def set_backend(
+  value: str = "numpy"
+) -> None:
   global _BKD
   _BKD = value
   if (value not in _VALID_BKD):
@@ -37,7 +46,7 @@ def set_backend(value="torch"):
 
 # Conversion
 # -------------------------------------
-def to_numpy(x):
+def to_numpy(x: Any) -> Any:
   if (x is not None):
     if isinstance(x, np.ndarray):
       return x
@@ -48,7 +57,7 @@ def to_numpy(x):
     else:
       return x
 
-def to_backend(x):
+def to_backend(x: Any) -> Any:
   if (x is not None):
     if (_BKD == "torch"):
       if torch.is_tensor(x):
@@ -58,18 +67,21 @@ def to_backend(x):
     else:
       return to_numpy(x)
 
-def to_sparse(x):
-  if sp.sparse.issparse(x):
-    return x.tocsr()
-  else:
-    return sp.sparse.csr_matrix(to_numpy(x))
+def to_sparse(
+  x: Union[np.ndarray, sp.sparse.spmatrix]
+) -> sp.sparse.spmatrix:
+  return x.tocsr() if sp.sparse.issparse(x) else sp.sparse.csr_matrix(x)
 
 # Device
 # -------------------------------------
-def device():
+def device() -> str:
   return _DEVICE
 
-def set_device(value=None, index=0, nb_threads=4):
+def set_device(
+  value: str = None,
+  index: int = 0,
+  nb_threads: int = 8,
+) -> None:
   if ((value is None) or (value == "cuda")):
     value = "cuda" if torch.cuda.is_available() else "cpu"
   if (value not in _VALID_DEVICE):
@@ -90,7 +102,7 @@ def set_device(value=None, index=0, nb_threads=4):
 
 # Epsilon
 # -------------------------------------
-def machine_eps():
+def machine_eps() -> float:
   return float(np.finfo(
     {
       "float16": np.float16,
@@ -99,10 +111,12 @@ def machine_eps():
     }[_FLOATX]
   ).eps)
 
-def epsilon():
+def epsilon() -> float:
   return _EPSILON
 
-def set_epsilon(value):
+def set_epsilon(
+  value: Union[float, None] = None
+) -> None:
   if (value is None):
     value = machine_eps()
   global _EPSILON
@@ -110,7 +124,9 @@ def set_epsilon(value):
 
 # Float
 # -------------------------------------
-def floatx(bkd="torch"):
+def floatx(
+  bkd: str = "torch"
+) -> Union[str, type, torch.dtype]:
   if (bkd == "torch"):
     return {
       "float16": torch.float16,
@@ -126,7 +142,9 @@ def floatx(bkd="torch"):
   else:
     return _FLOATX
 
-def set_floatx(value):
+def set_floatx(
+  value: str
+) -> None:
   global _FLOATX
   _FLOATX = value
   if (value not in _VALID_DTYPE):
@@ -137,3 +155,31 @@ def set_floatx(value):
     torch.set_default_dtype(floatx())
   except:
     pass
+
+# Seed
+# -------------------------------------
+def seed() -> Union[int, None]:
+  return _SEED
+
+def set_seed(
+  value: Union[int, None] = None
+) -> None:
+  """
+  Set random number generator seeds for reproducibility.
+
+  :param value: An integer seed for random number generators.
+  :type value: int or None
+
+  This function sets the seed for Python's built-in random module, NumPy,
+  PyTorch, and ensures deterministic operations. It's essential for
+  achieving reproducible results in data processing and machine learning
+  tasks. If `value` is provided, all random generators will use the same seed.
+  """
+  global _SEED
+  _SEED = value
+  if (value is not None):
+    random.seed(value)
+    np.random.seed(value)
+    torch.manual_seed(value)
+    # torch.use_deterministic_algorithms(True)
+    os.environ["PYTHONHASHSEED"] = str(value)

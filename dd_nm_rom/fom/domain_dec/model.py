@@ -2,9 +2,12 @@ import numpy as np
 import scipy.sparse as sp
 
 from time import time
+from dd_nm_rom import ops
+from dd_nm_rom import solvers
+from dd_nm_rom import backend as bkd
+
+from .indices import DDIndices
 from .subdomain import Subdomain
-from .subdomain_indices import SubdomainIndices
-from dd_nm_rom.solvers import Newton
 
 
 class DDBurgers2D(object):
@@ -19,45 +22,39 @@ class DDBurgers2D(object):
   fields:
   nxy:       total number of nodes (finite difference grid points) in full domain model
   n_sub:     number of subdomains
-  skeleton:  self.subs_indices of each node in the skeleton
+  skeleton:  self.dd_indices of each node in the skeleton
   ports:     list of frozensets corresponding to each port in the DD model.
           ports[i] = frozenset of the subdomains contained in port i
-  ports_dict: dictionary of port self.subs_indices where
-          ports_dict[port[i]] = self.subs_indices in port[i]
+  ports_dict: dictionary of port self.dd_indices where
+          ports_dict[port[i]] = self.dd_indices in port[i]
   n_constraints_weak: number of (equality) constraints for DD model
   subdomain: list of instances of Subdomain class where
           subdomain[i] = Subdomain instance corresponding to ith subdomain
 
   methods:
   set_bc: update boundary condition data
-  FJac: computes the KKT system to be solved at each iteration of the Lagrange-Newton SQP solver
-  solve: solves for the states of the DD model using the Lagrange-Newton-SQP method
+  FJac: computes the KKT system to be solved at each iteration of the Lagrange-solvers.Newton SQP solver
+  solve: solves for the states of the DD model using the Lagrange-solvers.Newton-SQP method
   """
+
+  # Initialization
+  # ===================================
   def __init__(
     self,
     monolithic,
-    n_sub_x,
-    n_sub_y,
     n_constraints_weak=1,
     constraint_type="strong",
-    scaling=1.0,
-    seed=None
+    scaling=1.0
   ):
     # FOM monolithic
     # -------------
     self.monolithic = monolithic
-    for k in ("nxy", "hxy"):
+    for k in ("runtime", "mesh"):
       setattr(self, k, getattr(self.monolithic, k))
-    # Scaling factor for residual
-    self.scaling = self.hxy if (scaling <= 0) else scaling
-    # DD-FOM subdomains indices
-    # -------------
-    self.subs_indices = SubdomainIndices(monolithic, n_sub_x, n_sub_y)
-    self.n_subs = self.subs_indices.n_subs
-    self.set_ports()
+    # > Scaling factor for residual
+    self.scaling = self.mesh.hxy if (scaling <= 0) else scaling
     # Constraints
     # -------------
-    self.seed = seed
     self.constraint_type = constraint_type
     if (self.constraint_type not in ("weak", "strong")):
       raise ValueError(
@@ -65,79 +62,68 @@ class DDBurgers2D(object):
           "Valid options are: ['weak', 'strong']."
       )
     self.n_constraints_weak = int(n_constraints_weak)
+    # Integration
+    # -------------
+    self.steady = True
+    self.x_old = None
+    self.dt = 0.0
+    # Control variables
+    # -------------
+    self.built = False
+
+  # Building
+  # ===================================
+  def is_built(self) -> None:
+    self.monolithic.is_built()
+    if (not self.built):
+      raise ValueError(
+        "DD-FOM model not built. Please, call 'build' method first."
+      )
+
+  def build(self):
+    self.monolithic.is_built()
+    # DD-FOM subdomains indices
+    self.dd_indices = DDIndices(self.mesh, self.monolithic)
+    # Constraints
     self.cmat = self.assemble_cmat()
     # DD-FOM subdomains
-    # -------------
     self.subdomains = []
-    for s in range(self.n_subs):
+    for s in range(self.mesh.n_sub):
       cmat_s, indices_s = {}, {}
       for e_k in ("res", "interior", "interface"):
-        indices_s[e_k] = getattr(self.subs_indices, e_k)[s]
+        indices_s[e_k] = getattr(self.dd_indices, e_k)[s]
         if (e_k != "res"):
           cmat_s[e_k] = self.cmat[e_k][s]
       self.subdomains.append(
         Subdomain(
           monolithic=self.monolithic,
-          indices=indices_s,
+          nodes_ind=indices_s,
           cmat=cmat_s,
-          ports=self.sub_to_ports[s],
-          port_to_nodes=self.port_to_nodes,
+          ports=self.dd_indices.sub_to_ports[s],
+          port_to_nodes=self.dd_indices.port_to_nodes,
           scaling=self.scaling
         )
       )
-    # Run time
-    # -------------
-    self.runtime = 0.0
+    # Update control variables
+    self.built = True
 
-  # Ports
-  # ===================================
-  def set_ports(self):
-    # Assign each interface node to subdomains
-    # -------------
-    node_intf_to_subs = np.zeros(
-      shape=(len(self.subs_indices.skeleton), self.n_subs),
-      dtype=bool
-    )
-    for (i, node_i) in enumerate(self.subs_indices.skeleton):
-      for (j, intf_j) in enumerate(self.subs_indices.interface):
-        node_intf_to_subs[i,j] = node_i in intf_j
-    # Assign subdomains to each port
-    # -------------
-    subs = np.arange(self.n_subs)
-    port_to_subs = set([])
-    for mask in node_intf_to_subs:
-      port_to_subs.add(frozenset(subs[mask]))
-    # > Convert to dictionary
-    self.port_to_subs = {}
-    for (p, subs_p) in enumerate(list(port_to_subs)):
-      self.port_to_subs[p] = np.array(list(subs_p))
-    # > List all the ports
-    self.ports = np.array(list(self.port_to_subs.keys()))
-    # Assign nodes to each port
-    # -------------
-    self.port_to_nodes = {}
-    for (p, subs_p) in self.port_to_subs.items():
-      indices = np.zeros(self.n_subs, dtype=bool)
-      indices[subs_p] = True
-      mask = (node_intf_to_subs == indices).all(axis=1)
-      self.port_to_nodes[p] = np.sort(self.subs_indices.skeleton[mask])
-    # Assign each port to one or multiple subdomains
-    # -------------
-    self.sub_to_ports = {}
-    for s in range(self.n_subs):
-      sub = set([])
-      for (p, subs_p) in self.port_to_subs.items():
-        if s in subs_p:
-          sub.add(p)
-      self.sub_to_ports[s] = np.sort(list(sub))
+  def get_ndof(self):
+    ndof = 0
+    for sub in self.subdomains:
+      for e_k in ("interior", "interface"):
+        ndof += sub.elem_states[e_k].n_nodes_state
+    ndof *= 2
+    ndof += self.n_constraints
+    return ndof
 
   # Constraint matrices
-  # ===================================
+  # -----------------------------------
   def assemble_cmat(self):
     # Compute total number of constraints
     self.n_constraints = 0
-    for (p, subs_p) in self.port_to_subs.items():
-      self.n_constraints += (len(subs_p)-1) * len(self.port_to_nodes[p])
+    for (p, subs_p) in self.dd_indices.port_to_subs.items():
+      n_ports = len(self.dd_indices.port_to_nodes[p])
+      self.n_constraints += (len(subs_p)-1) * n_ports
     # Assemble constraints matrices
     cmat = {
       "interior": self.init_cmat(element="interior"),
@@ -149,18 +135,17 @@ class DDBurgers2D(object):
     self.n_constraints *= 2
     # Convert to weak constraints
     if (self.constraint_type == "weak"):
-      cmat, self.n_constraints = DDBurgers2D.s_assemble_cmat_weak(
+      cmat, self.n_constraints = self.assemble_cmat_weak(
         cmat=cmat,
         n_constraints_weak=self.n_constraints_weak,
-        n_constraints=self.n_constraints,
-        seed=self.seed
+        n_constraints=self.n_constraints
       )
     return cmat
 
   def init_cmat(self, element):
     cmat = []
-    for nodes in getattr(self.subs_indices, element):
-      cmat.append(sp.coo_matrix((self.n_constraints, len(nodes))))
+    for nodes_ind in getattr(self.dd_indices, element):
+      cmat.append(sp.coo_matrix((self.n_constraints, len(nodes_ind))))
     return cmat
 
   def assemble_cmat_intf(self):
@@ -168,89 +153,75 @@ class DDBurgers2D(object):
     cmat = self.init_cmat(element="interface")
     # Fill matrices
     shift = 0
-    for (p, subs_p) in self.port_to_subs.items():
-      port_nodes = self.port_to_nodes[p]
-      port_dim = len(port_nodes)
+    for (p, subs_p) in self.dd_indices.port_to_subs.items():
+      port_nodes = self.dd_indices.port_to_nodes[p]
+      port_size = port_nodes.size
       for i in range(len(subs_p)-1):
         for (j, l) in enumerate((i,i+1)):
           s = subs_p[l]
-          intf_nodes = self.subs_indices.interface[s]
+          intf_nodes = self.dd_indices.interface[s]
           col = np.where(np.isin(intf_nodes, port_nodes))[0]
-          row = np.arange(port_dim) + shift
-          dat = (-1)**j * np.ones(port_dim)
+          row = np.arange(port_size) + shift
+          dat = (-1)**j * np.ones(port_size)
           cmat[s].col = np.concatenate((cmat[s].col, col))
           cmat[s].row = np.concatenate((cmat[s].row, row))
           cmat[s].data = np.concatenate((cmat[s].data, dat))
-        shift += port_dim
+        shift += port_size
     return cmat
 
-  def set_bc(self):
-    """
-    Updates boundary condition data on current subdomain
+  def assemble_cmat_weak(
+    self,
+    cmat,
+    n_constraints_weak,
+    n_constraints
+  ):
+    n_constraints_weak = max(n_constraints_weak, 1)
+    n_constraints_weak = min(n_constraints_weak, n_constraints)
+    rgen = np.random.default_rng(bkd.seed())
+    rmat = rgen.standard_normal((n_constraints_weak, n_constraints))
+    for e_k in ("interior", "interface"):
+      cmat[e_k] = [rmat @ m for m in cmat[e_k]]
+    cmat = ops.map_nested_dict(cmat, bkd.to_sparse)
+    return cmat, n_constraints_weak
 
-    inputs:
-    monolithic: instance of Burgers2D class with updated BC data
-    """
-    for sub in self.subdomains:
-      sub.set_bc()
-
-  def get_ndof(self):
-    ndof = 0
-    for sub in self.subdomains:
-      for e_k in ("interior", "interface"):
-        ndof += sub.n_nodes[e_k]
-    ndof *= 2
-    ndof += self.n_constraints
-    return ndof
-
-  def rhs_jac(self, x):
-    """
-    Computes the KKT system to be solved at each iteration of the Lagrange-Newton SQP solver.
-
-    inputs:
-    w: vector of all interior and interface states for each subdomain
-       and the lagrange multipliers lambdas in the order
-          w = [u_intr[0],
-             v_intr[0],
-             u_intf[0],
-             v_intf[0],
-             ...,
-             u_intr[n_sub],
-             v_intr[n_sub],
-             u_intf[n_sub],
-             v_intf[n_sub],
-             lambdas]
-
-    outputs:
-    val: RHS of the KKT system
-    full_jac: KKT matrix
-    runtime: "parallel" runtime to assemble KKT system
-
-    """
+  # RHS/Jacobian
+  # ===================================
+  def rhs_jac(
+    self,
+    x
+  ):
+    runtime = 0.0
     # Initialize
     # -------------
     start = time()
     rhs, hess, cjac = [], [], []
     crhs = np.zeros(self.n_constraints)
-    self.runtime += time()-start
+    runtime += time()-start
     # Assemble solution
     # -------------
     start = time()
     uv, lambdas = self.assemble_sol(x, map_on_res=False)
-    self.runtime += (time()-start) / self.n_subs
+    if (not self.steady):
+      uv_old, _ = self.assemble_sol(self.x_old, map_on_res=False)
+    runtime += (time()-start) / self.mesh.n_sub
     # Loop over subdomains
     # -------------
     runtime_s = 0.0
+    uv_s_old = None
     for (s, sub) in enumerate(self.subdomains):
       start_s = time()
       # > Get u and v at interior and interface nodes for subdomain 's'
-      uv_s = {}
-      for e_k in ("interior", "interface"):
-        uv_s[e_k] = {}
-        for x_k in ("u", "v"):
-          uv_s[e_k][x_k] = uv[e_k][x_k][s]
+      uv_s = self.extract_uv_sub_from_dict(uv, s)
+      if (not self.steady):
+        uv_s_old = self.extract_uv_sub_from_dict(uv_old, s)
       # > Compute quantities needed for KKT system
-      rhs_s, crhs_s, hess_s, cjac_s = sub.rhs_jac(uv_s, lambdas, sqp=True)
+      rhs_s, crhs_s, hess_s, cjac_s = sub.rhs_jac(
+        uv=uv_s,
+        lambdas=lambdas,
+        steady=self.steady,
+        dt=self.dt,
+        uv_old=uv_s_old
+      )
       runtime_s = max(time()-start_s, runtime_s)
       # > Store subdomain-related quantities
       start = time()
@@ -258,123 +229,46 @@ class DDBurgers2D(object):
       crhs += crhs_s
       cjac.append(cjac_s)
       hess.append(hess_s)
-      self.runtime += time()-start
-    self.runtime += runtime_s
+      runtime += time()-start
+    runtime += runtime_s
     # Assemble
     # -------------
     start = time()
-    rhs, jac = DDBurgers2D.s_assemble_rhs_jac(rhs, crhs, cjac, hess)
-    self.runtime += time()-start
+    rhs, jac = self.assemble_kkt(rhs, crhs, cjac, hess)
+    runtime += time()-start
+    self.runtime["total"] += runtime
+    self.runtime["rhs_jac"] += runtime
     return rhs, jac
 
-  def solve(
+  def assemble_sol(
     self,
-    x0=None,
-    tol=1e-8,
-    maxit=50,
-    stepsize_min=1e-10,
-    verbose=False
+    x,
+    map_on_res=False
   ):
-    """
-    Solves for the u and v interior and interface states of the DD-FOM using the Lagrange-Newton-SQP algorithm.
-
-    inputs:
-    w0: initial interior/interface states and lagrange multipliers
-    tol: [optional] stopping tolerance for Newton solver. Default is 1e-5
-    maxit: [optional] max number of iterations for newton solver. Default is 20
-    print_hist: [optional] Boolean to print iteration history for Newton solver. Default is False
-
-    outputs:
-    u["res"]: u state mapped to full domain
-    v["res"]: v state mapped to full domain
-    u["interior"]: list of u interior states for each subdomain, i.e
-          u["interior"][i] = u interior state on subdomain i
-    v["interior"]: list of v interior states for each subdomain, i.e
-          v["interior"][i] = v interior state on subdomain i
-    u["interface"]: list of u interface states for each subdomain, i.e
-           u["interface"][i] = u interface state on subdomain i
-    v["interface"]: list of v interface states for each subdomain, i.e
-           v["interface"][i] = v interface state on subdomain i
-    lambdas:        vector of optimal Lagrange multipliers
-    runtime: solve time for Newton solver
-    itr: number of iterations for Newton solver
-    """
-    self.runtime = 0.0
-    # Initialize solution
-    start = time()
-    if (x0 is None):
-      x0 = np.zeros(self.get_ndof())
-    self.runtime += time()-start
-    # Solve
-    solver = Newton(
-      model=self,
-      tol=tol,
-      maxit=maxit,
-      stepsize_min=stepsize_min,
-      verbose=verbose
-    )
-    x, *_ = solver.solve(x0)
-    # Assemble solution
-    uv, lambdas = self.assemble_sol(x, map_on_res=True)
-    return uv, lambdas
-
-  def assemble_sol(self, x, map_on_res=False):
-    uv = DDBurgers2D.s_init_uv(size=self.nxy, map_on_res=map_on_res)
+    shape = [self.mesh.nxy]
+    if (x.ndim == 2):
+      shape.append(x.shape[1])
+    uv = self.init_uv(shape=shape, map_on_res=map_on_res)
     # Loop over subdomains
     si = 0
     for sub in self.subdomains:
       # Loop over elements
       for e_k in ("interior", "interface"):
-        ei = si + 2*sub.n_nodes[e_k]
-        uv = DDBurgers2D.s_extract_uv_sub(
-          uv, x[si:ei], sub, element=e_k, map_on_res=map_on_res
+        state_k = sub.elem_states[e_k]
+        ei = si + 2*state_k.n_nodes_state
+        uv = self.extract_uv_sub_from_vec(
+          uv=uv,
+          uv_i=x[si:ei],
+          elem_state=state_k,
+          map_on_res=map_on_res
         )
         si = ei
     lambdas = x[-self.n_constraints:]
     return uv, lambdas
 
-  def map_sol_on_elements(
+  def init_uv(
     self,
-    solutions,
-    map_on_ports=False
-  ):
-    if (solutions.shape[1] != 2*self.nxy):
-      solutions = solutions.T
-    data = {}
-    for e_k in ("res", "interior", "interface"):
-      data[e_k] = []
-      for sub in self.subdomains:
-        indices = sub.indices[e_k]
-        indices = np.concatenate([indices, indices+self.nxy])
-        data[e_k].append(solutions[:,indices])
-    if map_on_ports:
-      data["port"] = []
-      for p in self.ports:
-        indices = self.port_to_nodes[p]
-        indices = np.concatenate([indices, indices+self.nxy])
-        data["port"].append(solutions[:,indices])
-    return data
-
-  # Static methods
-  # ===================================
-  @staticmethod
-  def s_assemble_cmat_weak(
-    cmat,
-    n_constraints_weak,
-    n_constraints,
-    seed=None
-  ):
-    n_constraints_weak = max(n_constraints_weak, 1)
-    n_constraints_weak = min(n_constraints_weak, n_constraints)
-    rng = np.random.default_rng(seed)
-    rmat = rng.standard_normal((n_constraints_weak, n_constraints))
-    for e_k in ("interior", "interface"):
-      cmat[e_k] = [sp.csr_matrix(rmat @ m) for m in cmat[e_k]]
-    return cmat, n_constraints_weak
-
-  @staticmethod
-  def s_init_uv(
-    size=1,
+    shape,
     map_on_res=True
   ):
     uv = {}
@@ -385,33 +279,44 @@ class DDBurgers2D(object):
     if map_on_res:
       uv["res"] = {}
       for x_k in ("u", "v"):
-        uv["res"][x_k] = np.zeros(size)
+        uv["res"][x_k] = np.zeros(shape)
     return uv
 
-  @staticmethod
-  def s_extract_uv_sub(
+  def extract_uv_sub_from_vec(
+    self,
     uv,
     uv_i,
-    subdomain,
-    element,
+    elem_state,
     map_on_res=True
   ):
-    n_nodes = subdomain.n_nodes[element]
-    indices = subdomain.indices[element]
+    size = elem_state.n_nodes_state
+    indices = elem_state.nodes_state
     # u velocity
-    u = uv_i[:n_nodes]
-    uv[element]["u"].append(u)
+    u = uv_i[:size]
+    uv[elem_state.name]["u"].append(u)
     if map_on_res:
       uv["res"]["u"][indices] = u
     # v velocity
-    v = uv_i[n_nodes:]
-    uv[element]["v"].append(v)
+    v = uv_i[size:]
+    uv[elem_state.name]["v"].append(v)
     if map_on_res:
       uv["res"]["v"][indices] = v
     return uv
 
-  @staticmethod
-  def s_assemble_rhs_jac(
+  def extract_uv_sub_from_dict(
+    self,
+    uv,
+    index
+  ):
+    uv_s = {}
+    for e_k in ("interior", "interface"):
+      uv_s[e_k] = {}
+      for x_k in ("u", "v"):
+        uv_s[e_k][x_k] = uv[e_k][x_k][index]
+    return uv_s
+
+  def assemble_kkt(
+    self,
     rhs,
     crhs,
     cjac,
@@ -431,3 +336,96 @@ class DDBurgers2D(object):
       format="csr"
     )
     return rhs, jac
+
+  # Solution
+  # ===================================
+  def solve(
+    self,
+    x0=None,
+    dt=0.0,
+    nt=1,
+    steady=True,
+    tol=1e-8,
+    maxit=50,
+    stepsize_min=1e-10,
+    verbose=False
+  ):
+    """
+    Solves for the u and v states of the FOM using Newton"s method.
+
+    inputs:
+    u0: (nx*ny,) initial u vector
+    v0: (nx*ny,) initial v vector
+    tol: [optional] stopping tolerance for Newton solver. Default is 1e-10
+    maxit: [optional] max number of iterations for newton solver. Default is 100
+    print_hist: [optional] Boolean to print iteration history for Newton solver. Default is False
+
+    outputs:
+    u: (nx*ny,) u final solution vector
+    v: (nx*ny,) v final solution vector
+    res_vecs: (it, nx*ny) array where res_vecs[i] is the PDE residual evaluated at the ith Newton iteration
+    """
+    self.is_built()
+    self.runtime = ops.map_nested_dict(self.runtime, lambda _: 0.0)
+    # Initialize solution
+    start = time()
+    if (x0 is None):
+      x0 = np.zeros(self.get_ndof())
+    self.runtime["total"] += time()-start
+    # Initialize solver
+    solver = solvers.Newton(
+      model=self,
+      tol=tol,
+      maxit=maxit,
+      stepsize_min=stepsize_min,
+      verbose=verbose
+    )
+    # Solving
+    self.steady = bool(steady)
+    if self.steady:
+      dt, nt = 0.0, 1
+    x, rhs, *_, flag = solver(x0, dt, nt)
+    converged = True if (flag[-1] == 0) else False
+    # Assemble solution
+    uv, lambdas = self.assemble_sol(x, map_on_res=True)
+    return uv, lambdas, rhs, converged
+
+  def get_init_sol(
+    self,
+    x
+  ):
+    self.is_built()
+    # Map init sol on elements
+    x = self.map_sol_on_elements(x.reshape(1,-1))
+    # Initial guess
+    x_dd = []
+    # Loop over subdomains
+    for s in range(self.mesh.n_sub):
+      # Loop over elements
+      for e_k in ("interior", "interface"):
+        x_dd.append(x[e_k][s].reshape(-1))
+    x_dd.append(np.zeros(self.n_constraints))
+    return np.concatenate(x_dd)
+
+  def map_sol_on_elements(
+    self,
+    solutions,
+    map_on_ports=False
+  ):
+    self.is_built()
+    if (solutions.shape[1] != self.monolithic.get_ndof()):
+      solutions = solutions.T
+    data = {}
+    for e_k in ("res", "interior", "interface"):
+      data[e_k] = []
+      for sub in self.subdomains:
+        indices = sub.elem_states[e_k].nodes_state
+        indices = np.concatenate([indices, indices+self.mesh.nxy])
+        data[e_k].append(solutions[:,indices])
+    if map_on_ports:
+      data["port"] = []
+      for p in self.dd_indices.ports:
+        indices = self.dd_indices.port_to_nodes[p]
+        indices = np.concatenate([indices, indices+self.mesh.nxy])
+        data["port"].append(solutions[:,indices])
+    return data

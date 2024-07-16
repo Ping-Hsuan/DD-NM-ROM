@@ -1,6 +1,8 @@
 import numpy as np
 import scipy as sp
 
+from time import time
+
 from .basic import Solver
 
 
@@ -8,14 +10,14 @@ class GaussNewton(Solver):
 
   def __init__(
     self,
-    rhs_jac=None,
+    model,
     tol=1e-3,
     maxit=20,
     stepsize_min=1e-10,
     verbose=False
   ):
     super(GaussNewton, self).__init__(
-      rhs_jac=rhs_jac,
+      model=model,
       tol=tol,
       maxit=maxit,
       stepsize_min=stepsize_min,
@@ -45,47 +47,57 @@ class GaussNewton(Solver):
     # Initialize
     # ---------------
     # > Set first step
-    it = 0
-    x = x0
+    it, x = 0, x0
     rhs, jac, res = self.evaluate(x)
     # > Set histories
+    start = time()
+    rhs_hist = [rhs]
     conv_hist = [np.linalg.norm(jac.T@rhs)]
     step_hist = [0.0]
+    self.model.runtime["total"] += time()-start
     # > Print first step
-    if self.verbose:
-      self.print_step(it, step_hist[-1], conv_hist[-1], header=True)
+    self.print_step(it, step_hist[-1], conv_hist[-1], header=True)
     # Loop until convergence
     # ---------------
-    while ((conv_hist[-1] >= self.tol) & (it < self.self.maxit)):
+    flag = 0
+    while ((conv_hist[-1] >= self.tol) & (it < self.maxit)):
       # > Initialize line search
+      start = time()
       dx, minval = sp.linalg.lstsq(jac,-rhs)[:2]
-      eval_res_tol = lambda stepsize: res + 2e-4*stepsize*(minval-res)
+      delta = time()-start
+      self.model.runtime["total"] += delta
+      self.model.runtime["linalg"] += delta
       # > Armijo line search
+      eval_res_tol = lambda stepsize: res + 2e-4*stepsize*(minval-res)
       x, rhs, jac, res, stepsize = self.line_search(x, dx, eval_res_tol)
       # > Update
+      start = time()
       it += 1
+      rhs_hist.append(rhs)
       conv_hist.append(np.linalg.norm(jac.T@rhs))
       step_hist.append(stepsize)
+      self.model.runtime["total"] += time()-start
       # > Print step
-      if self.verbose:
-        self.print_step(it, step_hist[-1], conv_hist[-1])
-      # > Check step size
+      self.print_step(it, step_hist[-1], conv_hist[-1])
+      # > Check convergence
       if (stepsize < self.stepsize_min):
-        print(f"No stepsize found at iteration {it}.")
+        flag = 1
         break
-    # Check convergence
+      if np.isnan(res):
+        flag = 2
+        break
     if (it == self.maxit):
-      print(f"Newton solver failed to converge in {self.maxit} iterations.")
-    else:
-      print(
-        f"Gauss-Newton solver terminated after {it} " \
-        f"iterations with residual norm of {res:1.4e}."
-      )
+      flag = 3
     # Return result
     # ---------------
-    return (
+    start = time()
+    out = (
       x,
+      np.vstack(rhs_hist),
       np.array(conv_hist),
       np.array(step_hist),
-      it
+      np.array(it).reshape(1),
+      np.array(flag).reshape(1)
     )
+    self.model.runtime["total"] += time()-start
+    return out

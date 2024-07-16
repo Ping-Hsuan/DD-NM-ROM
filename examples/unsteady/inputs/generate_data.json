@@ -1,0 +1,59 @@
+{
+  "pathfile": "./../../../PATHS.txt",
+  "env": {
+    "backend": "numpy",
+    "device": "cpu",
+    "device_idx": 0,
+    "nb_threads": 4,
+    "epsilon": 1e-10,
+    "floatx": "float64",
+    "seed": null
+  },
+  "mesh": {
+    "nx_intr": 48,
+    "ny_intr": 48,
+    "lx_sub": 0.5,
+    "ly_sub": 0.5,
+    "x0": 0.0,
+    "y0": 0.0,
+    "n_sub_x": 2,
+    "n_sub_y": 2
+  },
+  "field": {
+    "name": "SinMultiPeak",
+    "kwargs": {
+      "mu_lim": [0.5, 1.5],
+      "forced_config": [1,0,0,0]
+    }
+  },
+  "fom": {
+    "name": "Burgers2D",
+    "kwargs": {
+      "nu": 1e-3
+    }
+  },
+  "dd_fom": {
+    "name": "DDBurgers2D",
+    "kwargs": {
+      "constraint_type": "strong",
+      "scaling": -1
+    }
+  },
+  "solver": {
+    "dt": 0.02,
+    "nt": 100,
+    "steady": false,
+    "tol": 1e-7,
+    "maxit": 100,
+    "stepsize_min": 1e-15,
+    "verbose": false
+  },
+  "data_gen": {
+    "n_samples": {
+      "train": 2000,
+      "test": 50
+    },
+    "n_workers": 100
+  },
+  "save_dir": "/g/g92/zanardi1/Workspace/Codes/DD-NM-ROM/run/unsteady/dset.2by2/datagen/"
+}

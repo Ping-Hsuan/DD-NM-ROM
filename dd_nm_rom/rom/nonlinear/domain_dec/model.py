@@ -2,13 +2,13 @@ import copy
 import torch
 import numpy as np
 import scipy.sparse as sp
-import scipy.linalg as la
 
 from time import time
+from dd_nm_rom import ops
+from dd_nm_rom import solvers
 from dd_nm_rom import backend as bkd
-from dd_nm_rom.solvers import Newton
-from dd_nm_rom.ops import map_nested_dict
-from dd_nm_rom.fom.domain_dec import DDBurgers2D
+
+from .rbf_model import RBFModel
 from .subdomain import SubdomainROM
 from ..autoencoder import AutoencoderNP, MultiAutoencoderNP
 
@@ -72,23 +72,21 @@ class DD_NM_ROM(object):
     hr_small_ports_dim=5,
     constraint_type='weak',
     n_constraints_weak=1,
-    scaling=1.0,
-    seed=None
+    scaling=1.0
   ):
     # DD-FOM
     # -------------
     self.dd_fom = dd_fom
-    for k in ("nxy", "hxy", "n_subs"):
+    for k in ("runtime", "mesh"):
       setattr(self, k, getattr(self.dd_fom, k))
     # Scaling factor for residual
-    self.scaling = self.hxy if (scaling <= 0) else scaling
+    self.scaling = self.mesh.hxy if (scaling <= 0) else scaling
     # Autoencoders
     # -------------
-    self.nn_configs = map_nested_dict(nn_configfiles, torch.load)
+    self.nn_configs = ops.map_nested_dict(nn_configfiles, torch.load)
     self.nn_models = self.init_nn_models(self.nn_configs)
     # DD-ROM Constraints
     # -------------
-    self.seed = seed
     self.constraint_type = constraint_type
     if (self.constraint_type not in ("weak", "strong")):
       raise ValueError(
@@ -121,10 +119,10 @@ class DD_NM_ROM(object):
         }
       self.subdomains.append(
         SubdomainROM(
-          subdomain=sub,
+          sub_fom=sub,
           scaling=self.scaling,
           constraint_type=self.constraint_type,
-          res_bases=self.res_bases[s],
+          res_bases=self.res_bases[s] if (self.res_bases is not None) else None,
           hr_n_samples=self.hr_n_samples,
           hr_n_edge_samples_ratio=self.hr_n_edge_samples_ratio,
           hr_sample_small_ports=self.hr_sample_small_ports,
@@ -134,12 +132,22 @@ class DD_NM_ROM(object):
       )
       if self.hr_active:
         self.subdomains[-1].set_hr_mode(active=True)
-    # Initial solution
+    # Interpolator
     # -------------
-    self.rbf = None
-    # Run time
+    self.rbf_model = RBFModel(self.subdomains, self.n_constraints)
+    # Integration
     # -------------
-    self.runtime = 0.0
+    self.steady = True
+    self.x_old = None
+    self.dt = 0.0
+
+  def get_ndof(self):
+    ndof = 0
+    for sub in self.subdomains:
+      for e_k in ("interior", "interface"):
+        ndof += sub.rom_dim[e_k]
+    ndof += self.n_constraints
+    return ndof
 
   # ROM dimensions
   # ===================================
@@ -165,7 +173,7 @@ class DD_NM_ROM(object):
   # ===================================
   def set_port_indices(self):
     # Check number of port autoencoders
-    if (len(self.nn_configs["port"]) != len(self.dd_fom.ports)):
+    if (len(self.nn_configs["port"]) != len(self.dd_fom.dd_indices.ports)):
       raise ValueError(
         "The number of port autoencoders doesn't " \
           "match the number of ports available."
@@ -178,11 +186,11 @@ class DD_NM_ROM(object):
       for p in sub.ports:
         # FOM
         # > Port/interface indices
-        port_ind = self.dd_fom.port_to_nodes[p]
-        intf_ind = sub.indices["interface"]
+        port_ind = self.dd_fom.dd_indices.port_to_nodes[p]
+        intf_ind = sub.elem_states["interface"].nodes_state
         # > Duplicate for u and v
-        port_ind = np.concatenate([port_ind, port_ind+self.nxy])
-        intf_ind = np.concatenate([intf_ind, intf_ind+self.nxy])
+        port_ind = np.concatenate([port_ind, port_ind+self.mesh.nxy])
+        intf_ind = np.concatenate([intf_ind, intf_ind+self.mesh.nxy])
         fom_ind = np.nonzero(np.isin(intf_ind, port_ind))[0]
         # ROM
         port_dim = self.rom_dim["port"][p]
@@ -212,10 +220,11 @@ class DD_NM_ROM(object):
   def init_nn_model_intf(self):
     models = []
     for (s, sub) in enumerate(self.dd_fom.subdomains):
+      n_nodes_intf = sub.elem_states["interface"].n_nodes_state
       models.append(
         MultiAutoencoderNP(
           indices=self.port_to_nodes[s],
-          input_dim=2*sub.n_nodes["interface"],
+          input_dim=2*n_nodes_intf,
           autoencoders={p: self.nn_models["port"][p] for p in sub.ports}
         )
       )
@@ -227,20 +236,19 @@ class DD_NM_ROM(object):
     if (self.constraint_type == "weak"):
       cmat = copy.deepcopy(self.dd_fom.cmat)
       if (self.dd_fom.constraint_type != "weak"):
-        cmat, self.n_constraints = DDBurgers2D.s_assemble_cmat_weak(
+        cmat, self.n_constraints = self.dd_fom.assemble_cmat_weak(
           cmat=cmat,
           n_constraints_weak=self.n_constraints_weak,
-          n_constraints=self.dd_fom.n_constraints,
-          seed=self.seed
+          n_constraints=self.dd_fom.n_constraints
         )
     else:
       cmat = self._assemble_cmat_strong()
-    self.cmat = map_nested_dict(cmat, bkd.to_sparse)
+    self.cmat = ops.map_nested_dict(cmat, bkd.to_sparse)
 
   def _assemble_cmat_strong(self):
     # Compute total number of constraints
     self.n_constraints = 0
-    for (p, subs_p) in self.dd_fom.port_to_subs.items():
+    for (p, subs_p) in self.dd_fom.dd_indices.port_to_subs.items():
       port_dim = self.rom_dim["port"][p]
       self.n_constraints += (len(subs_p)-1) * port_dim
     # Assemble constraints matrices
@@ -264,7 +272,7 @@ class DD_NM_ROM(object):
     cmat = self._init_cmat(element="interface")
     # Fill matrices
     shift = 0
-    for (p, subs_p) in self.dd_fom.port_to_subs.items():
+    for (p, subs_p) in self.dd_fom.dd_indices.port_to_subs.items():
       port_dim = self.rom_dim["port"][p]
       for i in range(len(subs_p)-1):
         for (j, l) in enumerate((i,i+1)):
@@ -296,6 +304,7 @@ class DD_NM_ROM(object):
     full_jac: KKT matrix
     runtime: "parallel" runtime to assemble KKT system
     '''
+    runtime = 0.0
     # Initialize
     # -------------
     start = time()
@@ -303,9 +312,47 @@ class DD_NM_ROM(object):
     crhs = np.zeros(self.n_constraints)
     # > Set Lagrangian multipliers
     lambdas = x[-self.n_constraints:]
-    self.runtime += time()-start
+    runtime += time()-start
     # Loop over subdomains
     # -------------
+    z = self.extract_z_sub_from_vec(x)
+    z_old = None
+    if (not self.steady):
+      z_old = self.extract_z_sub_from_vec(self.x_old)
+    runtime_s = 0.0
+    for (s, sub) in enumerate(self.subdomains):
+      start_s = time()
+      # > Compute quantities needed for KKT system
+      rhs_s, crhs_s, hess_s, cjac_s = sub.rhs_jac(
+        z=z[s],
+        lambdas=lambdas,
+        steady=self.steady,
+        dt=self.dt,
+        z_old=z_old[s] if (z_old is not None) else None
+      )
+      runtime_s = max(time()-start_s, runtime_s)
+      # > Store subdomain-related quantities
+      start = time()
+      rhs.append(rhs_s)
+      crhs += crhs_s
+      cjac.append(cjac_s)
+      hess.append(hess_s)
+      runtime += time()-start
+    runtime += runtime_s
+    # Assemble
+    # -------------
+    start = time()
+    rhs, jac = self.dd_fom.assemble_kkt(rhs, crhs, cjac, hess)
+    runtime += time()-start
+    self.runtime["total"] += runtime
+    self.runtime["rhs_jac"] += runtime
+    return rhs, jac
+
+  def extract_z_sub_from_vec(
+    self,
+    x
+  ):
+    z = []
     si = 0
     runtime_s = 0.0
     for sub in self.subdomains:
@@ -315,23 +362,85 @@ class DD_NM_ROM(object):
         ei = si + sub.rom_dim[e_k]
         z_s[e_k] = x[si:ei]
         si = ei
-      # > Compute quantities needed for KKT system
-      rhs_s, crhs_s, hess_s, cjac_s = sub.rhs_jac(z_s, lambdas, sqp=True)
+      z.append(z_s)
       runtime_s = max(time()-start_s, runtime_s)
-      # > Store subdomain-related quantities
-      start = time()
-      rhs.append(rhs_s)
-      crhs += crhs_s
-      cjac.append(cjac_s)
-      hess.append(hess_s)
-      self.runtime += time()-start
-    self.runtime += runtime_s
-    # Assemble
-    # -------------
-    start = time()
-    rhs, jac = DDBurgers2D.s_assemble_rhs_jac(rhs, crhs, cjac, hess)
-    self.runtime += time()-start
-    return rhs, jac
+    self.runtime["total"] += runtime_s
+    self.runtime["rhs_jac"] += runtime_s
+    return z
+
+  # Encode/Decode
+  # ===================================
+  def encode(
+    self,
+    x
+  ):
+    is_2d = (x.ndim == 2)
+    if (is_2d and (x.shape[0] == 2*self.mesh.nxy)):
+      x = x.T
+    if is_2d:
+      return np.vstack([self._encode(xi) for xi in x]).T
+    else:
+      return self._encode(x)
+
+  def _encode(
+    self,
+    x
+  ):
+    # Map on elements
+    uv = self.dd_fom.map_sol_on_elements(x.reshape(1,-1))
+    # Loop over subdomains/elements
+    z = []
+    for (s, sub) in enumerate(self.subdomains):
+      for e_k in ("interior", "interface"):
+        xi = uv[e_k][s].reshape(-1)
+        zi = sub.elem_states[e_k].encode(xi, with_jac=False)
+        z.append(zi)
+    z.append(np.zeros(self.n_constraints))
+    return np.concatenate(z)
+
+  def decode(
+    self,
+    x,
+    map_on_res=False
+  ):
+    is_2d = (x.ndim == 2)
+    shape = [self.mesh.nxy, x.shape[1]] if is_2d else [self.mesh.nxy]
+    # Initialize solution containers
+    uv = self.dd_fom.init_uv(shape=shape, map_on_res=map_on_res)
+    z = {k: [] for k in ("interior", "interface")}
+    # Loop over subdomains/elements
+    si = 0
+    for sub in self.subdomains:
+      for e_k in ("interior", "interface"):
+        # Extract latent space subvector
+        ei = si + sub.rom_dim[e_k]
+        xi = x[si:ei]
+        si = ei
+        # Set element state
+        state_k = sub.elem_states[e_k]
+        state_k.set_decoder_hr(active=False)
+        # Store latent space
+        z[e_k].append(xi)
+        # Reconstruct/store physical space
+        if is_2d:
+          uv_i = [state_k.decode(xj, with_jac=False) for xj in xi.T]
+          uv_i = np.vstack(uv_i).T
+        else:
+          uv_i = state_k.decode(xi, with_jac=False)
+        uv = self.dd_fom.extract_uv_sub_from_vec(
+          uv=uv,
+          uv_i=uv_i,
+          elem_state=sub.sub_fom.elem_states[e_k],
+          map_on_res=map_on_res
+        )
+    lambdas = x[-self.n_constraints:]
+    return uv, z, lambdas
+
+  def reconstruct_static(
+    self,
+    x
+  ):
+    return self.decode(self.encode(x), map_on_res=True)[0]
 
   # Solution
   # ===================================
@@ -339,87 +448,79 @@ class DD_NM_ROM(object):
     self,
     x0=None,
     mu=None,
+    dt=0.0,
+    nt=1,
+    steady=True,
+    guess=None,
+    use_guess=False,
+    runtime=0.0,
     tol=1e-8,
     maxit=50,
     stepsize_min=1e-10,
     verbose=False
   ):
-    '''
-    Solves for the reduced states of the DD-LS-ROM using the Lagrange-Newton-SQP algorithm.
+    """
+    Solves for the u and v states of the FOM using Newton"s method.
 
     inputs:
-    w0: initial interior/interface states and lagrange multipliers
-    tol: [optional] stopping tolerance for Newton solver. Default is 1e-5
-    maxit: [optional] max number of iterations for newton solver. Default is 20
+    u0: (nx*ny,) initial u vector
+    v0: (nx*ny,) initial v vector
+    tol: [optional] stopping tolerance for Newton solver. Default is 1e-10
+    maxit: [optional] max number of iterations for newton solver. Default is 100
     print_hist: [optional] Boolean to print iteration history for Newton solver. Default is False
-    rhs: [optional] Boolean to return RHS vectors for each iteration. Default is False
 
     outputs:
-    u_full: u state mapped to full domain
-    v_full: v state mapped to full domain
-    w_interior: list of interior states for each subdomain, i.e
-          w_interior[i] = interior state on subdomain i
-    w_interface: list of interface states for each subdomain, i.e
-           w_interface[i] = interface state on subdomain i
-    lam:    (n_constraints,) vector of lagrange multipliers
-    runtime: solve time for Newton solver
-    itr: number of iterations for Newton solver
-    '''
-    self.runtime = 0.0
+    u: (nx*ny,) u final solution vector
+    v: (nx*ny,) v final solution vector
+    res_vecs: (it, nx*ny) array where res_vecs[i] is the PDE residual evaluated at the ith Newton iteration
+    """
+    self.runtime = ops.map_nested_dict(self.runtime, lambda _: 0.0)
+    self.runtime["total"] += runtime
+    # Initialize solution
     if (mu is not None):
-      x0 = self.init_sol(mu)
-    # Solve
-    solver = Newton(
+      x0, runtime = self.rbf_model(mu)
+      self.runtime["total"] += runtime
+    # Initialize solver
+    solver = solvers.Newton(
       model=self,
       tol=tol,
       maxit=maxit,
       stepsize_min=stepsize_min,
       verbose=verbose
     )
-    x, rhs, *_ = solver.solve(x0)
+    # Solving
+    self.steady = bool(steady)
+    if self.steady:
+      dt, nt = 0.0, 1
+    x, rhs, *_, flag = solver(x0, dt, nt, guess, use_guess)
+    converged = True if (flag[-1] == 0) else False
     # Assemble solution
     uv, z, lambdas = self.assemble_sol(x, map_on_res=True)
-    return uv, z, lambdas, rhs
+    return uv, z, lambdas, rhs, converged
+
+  def get_init_sol(
+    self,
+    x
+  ):
+    return self.encode(x)
 
   def assemble_sol(
     self,
     x,
     map_on_res=False
   ):
-    z = {k: [] for k in ("interior", "interface")}
-    uv = DDBurgers2D.s_init_uv(size=self.nxy, map_on_res=map_on_res)
-    # Loop over subdomains
-    si = 0
-    for sub in self.subdomains:
-      if sub.hr_active:
-        sub.set_decoder_hr(active=False)
-      # Loop over elements
-      for e_k in ("interior", "interface"):
-        ei = si + sub.rom_dim[e_k]
-        z[e_k].append(x[si:ei])
-        uv_i = sub.decode(z[e_k][-1], element=e_k)[0]
-        uv = DDBurgers2D.s_extract_uv_sub(
-          uv, uv_i, sub, element=e_k, map_on_res=map_on_res
-        )
-        si = ei
-    lambdas = x[-self.n_constraints:]
-    return uv, z, lambdas
-
-  def get_ndof(self):
-    ndof = 0
-    for sub in self.subdomains:
-      for e_k in ("interior", "interface"):
-        ndof += sub.rom_dim[e_k]
-    ndof += self.n_constraints
-    return ndof
+    return self.decode(x, map_on_res)
 
   def compute_error(
     self,
     uv_fom,
-    uv_rom
+    uv_rom,
+    scaling=False,
+    relative=True,
+    axis=None
   ):
     '''
-    Compute error between ROM and FOM DD solutions.
+    Compute error between DD-ROM and DD-FOM DD solutions.
 
     inputs:
     w_intr: list of reduced interior states where
@@ -440,105 +541,16 @@ class DD_NM_ROM(object):
     error: square root of mean squared relative error on each subdomain
     '''
     err = 0.0
-    for s in range(self.n_subs):
+    for s in range(self.mesh.n_sub):
       num_s, den_s = 0.0, 0.0
       for e_k in ("interior", "interface"):
-        for x_k in ("u","v"):
+        for x_k in ("u", "v"):
           x_fom = uv_fom[e_k][x_k][s]
           x_rom = uv_rom[e_k][x_k][s]
-          num_s += np.sum(np.square(x_rom - x_fom))
-          den_s += np.sum(np.square(x_fom))
-      err += num_s/den_s
-    return np.sqrt(err/self.n_subs)
-
-  # Initial solution
-  # ===================================
-  def init_sol(
-    self,
-    mu
-  ):
-    '''
-    Computes initial iterate used for solving NM-ROM optimization subproblem.
-
-    inputs:
-    mu:    (1, 2) array corresponding to parameters for the 2D Burgers problem.
-    mdl:   DD_NM_ROM class
-
-    outputs:
-    w0:    interior- and interface- state vector for initial guess to optimization problem
-    lam0:  initial guess for lagrange multipliers. computed using least-squares
-    runtime: "parallel" timing for generating initial x0 and lam0 iterates
-    '''
-    start = time()
-    if (self.rbf is None):
-      raise ValueError("RBF interpolator not initialized.")
-    mu = mu.reshape(1,-1)
-    z, rhs, jac = [], [], []
-    lambdas = np.zeros(self.n_constraints)
-    self.runtime += time()-start
-    runtime_s = 0.0
-    for (s, sub) in enumerate(self.subdomains):
-      start_s = time()
-      z_s = {}
-      for e_k in ("interior", "interface"):
-        z_s[e_k] = self.rbf[e_k][s](mu).squeeze()
-      rhs_s, *_, cjac_s = sub.rhs_jac(z_s, lambdas, sqp=True)
-      runtime_s = max(time()-start_s, runtime_s)
-      start = time()
-      # Solution
-      # -----------
-      for e_k in ("interior", "interface"):
-        z.append(z_s[e_k])
-      # Lambdas
-      # -----------
-      size = sub.rom_dim["interface"]
-      rhs.append(rhs_s[-size:])
-      # Jacobian
-      jac.append(cjac_s.T[-size:])
-      self.runtime += time()-start
-    self.runtime += runtime_s
-    # Get initial ROM solution and lambdas
-    start = time()
-    z = np.concatenate(z)
-    jac = sp.vstack(jac).toarray()
-    rhs = np.concatenate(rhs)
-    lambdas = la.lstsq(jac, -rhs)[0]
-    x0 = np.concatenate([z, lambdas])
-    self.runtime += time()-start
-    return x0
-
-  def init_rbf(
-    self,
-    x,
-    mu,
-    smoothing=0.0,
-    kernel='linear'
-  ):
-    '''
-    inputs:
-    params: (N, p)      input parameters for RBF interpolant
-    interior:   list of interior-state snapshots associated to params for each subdomain
-          e.g. interior[j] = (N, nx_sub*ny_sub) interior snapshot array for subdomain j
-    interface:  list of interface-state snapshots associated to params for each subdomain
-          e.g. interface[j] = (N, nx_sub*ny_sub) interface snapshot array for subdomain j
-    neighbors: [optional] see scipy.interpolate.RBFInterpolator documentation. Default is None
-    smoothing: [optional] see scipy.interpolate.RBFInterpolator documentation. Default is 0.0
-    kernel:    [optional] see scipy.interpolate.RBFInterpolator documentation. Default is 'thin_plate_spline'
-    epsilon:   [optional] see scipy.interpolate.RBFInterpolator documentation. Default is None
-    degree:    [optional] see scipy.interpolate.RBFInterpolator documentation. Default is None
-    '''
-    # Loop over elements
-    self.rbf = {}
-    for e_k in ("interior", "interface"):
-      # Loop over subdomains
-      self.rbf[e_k] = []
-      for (s, sub) in enumerate(self.subdomains):
-        self.rbf[e_k].append(
-          sub.init_rbf(
-            x=x[e_k][s],
-            mu=mu,
-            element=e_k,
-            smoothing=smoothing,
-            kernel=kernel
-          )
-        )
+          num_s += np.sum(np.square(x_rom - x_fom), axis=axis)
+          if relative:
+            den_s += np.sum(np.square(x_fom), axis=axis)
+      err += num_s/den_s if relative else num_s
+    if scaling:
+      err *= self.mesh.hxy
+    return np.amax(np.sqrt(err/self.mesh.n_sub))

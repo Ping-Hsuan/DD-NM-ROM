@@ -1,6 +1,8 @@
 import numpy as np
 import dill as pickle
-import scipy.linalg as la
+import dask.array as da
+
+from dd_nm_rom import backend as bkd
 
 
 def compute_svd(
@@ -8,6 +10,7 @@ def compute_svd(
   energy_min=1e-8,
   n_bases=-1,
   nb_samples=-1,
+  max_rank=1000,
   get_bases=False,
   save_dir=None,
   verbose=True
@@ -29,30 +32,36 @@ def compute_svd(
         nb_samples_max = len(data_ki)
         nb_samples_ki = min(nb_samples_max, nb_samples)
         indices = np.arange(nb_samples_ki)
+        np.random.seed(bkd.seed())
         indices = np.random.choice(indices, size=nb_samples_ki, replace=False)
         data_ki = data_ki[indices]
       if verbose:
-        print(f"Performing SVD for dataset '{k}-{i+1}' ...")
-      svd[k].append(perform_svd(data_ki.T))
+        print(f"> Performing SVD for dataset '{k}-{i+1}' ...")
+      svd[k].append(perform_svd(data_ki.T, max_rank))
   if (save_dir is not None):
     if verbose:
-      print("Saving SVD data ...")
+      print("> Saving SVD data ...")
     pickle.dump(svd, open(save_dir+"/svd.p", "wb"))
   if get_bases:
-    bases = get_bases_from_svd(svd, energy_min=energy_min, n_bases=n_bases)
+    bases = get_bases_from_svd(
+      svd,
+      energy_min=energy_min,
+      n_bases=n_bases,
+      max_rank=max_rank
+    )
     if (save_dir is not None):
       if verbose:
-        print("Saving POD bases ...")
+        print("> Saving POD bases ...")
       pickle.dump(bases, open(save_dir+"/bases.p", "wb"))
     return svd, bases
   else:
-    return svd
-
+    return svd, None
 
 def get_bases_from_svd(
   svd,
   energy_min=1e-8,
-  n_bases=-1
+  n_bases=-1,
+  max_rank=1000
 ):
   """
   Computes POD bases given saved SVD data.
@@ -75,17 +84,20 @@ def get_bases_from_svd(
     for svd_ki in svd_k:
       bases[k].append(
         compute_pod_bases(
-          svd=svd_ki, energy_min=energy_min_k, n_bases=n_bases_k
+          svd=svd_ki,
+          energy_min=energy_min_k,
+          n_bases=n_bases_k,
+          max_rank=max_rank
         )
       )
   return bases
-
 
 def compute_pod_bases(
   svd=None,
   data=None,
   energy_min=1e-5,
-  n_bases=-1
+  n_bases=-1,
+  max_rank=1000
 ):
   """
   Compute POD basis given snapshot data.
@@ -99,7 +111,7 @@ def compute_pod_bases(
     U: (N, n_bases)-array containing POD basis
     s: singular values of data
   """
-  svd = perform_svd(data) if (svd is None) else svd
+  svd = perform_svd(data, max_rank) if (svd is None) else svd
   if (n_bases <= 0):
     s_sq = svd["s"]**2
     energy = np.cumsum(s_sq) / np.sum(s_sq)
@@ -107,7 +119,7 @@ def compute_pod_bases(
   n_bases = min(svd["u"].shape[0], n_bases)
   return svd["u"][:,:n_bases]
 
-
-def perform_svd(data):
-  svd = la.svd(data, full_matrices=False, check_finite=False)
-  return {"u": svd[0], "s": svd[1], "vh": svd[2]}
+def perform_svd(data, max_rank=1000):
+  data = da.from_array(data, chunks="auto")
+  u, s, vh = da.linalg.svd_compressed(data, k=max_rank, seed=bkd.seed())
+  return {"u": u.compute(), "s": s.compute(), "vh": vh.compute()}

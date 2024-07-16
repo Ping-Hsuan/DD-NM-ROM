@@ -5,7 +5,7 @@ import numpy as np
 from dd_nm_rom.ops import sp_diag
 
 
-_ACT_IDS = ("elu", "linear", "mixed", "sigmoid", "swish")
+_ACT_IDS = ("elu", "linear", "mixed", "relu", "sigmoid", "swish")
 
 def get(identifier='sigmoid', *args, **kwargs):
   if (isinstance(identifier, str) and (identifier.lower() in _ACT_IDS)):
@@ -13,6 +13,7 @@ def get(identifier='sigmoid', *args, **kwargs):
       "elu":     ELU,
       "linear":  Linear,
       "mixed":   Mixed,
+      "relu":    ReLU,
       "sigmoid": Sigmoid,
       "swish":   Swish
     }[identifier.lower()](*args, **kwargs)
@@ -29,11 +30,8 @@ class BaseAct(object):
     self.fun = self._fun
     self.jac = lambda x: sp_diag(self._jac(x))
 
-  def __call__(self, x):
-    return self.fun_jac(x)
-
-  def fun_jac(self, x):
-    return self.fun(x), self.jac(x)
+  def __call__(self, x, with_jac=True):
+    return (self.fun(x), self.jac(x)) if with_jac else self.fun(x)
 
   @abc.abstractmethod
   def _fun(self, x):
@@ -75,14 +73,27 @@ class Swish(BaseAct):
     ex = np.exp(x)
     return ex * (1.0+x+ex) / (1.0+ex)**2
 
+# ReLU
+# -------------------------------------
+class ReLU(BaseAct):
+
+  def __init__(self):
+    self._fun = np.vectorize(self._fun)
+    self._jac = np.vectorize(self._jac)
+    super(ReLU, self).__init__()
+
+  def _fun(self, x):
+    return x if (x > 0.0) else 0.0
+
+  def _jac(self, x):
+    return 1.0 if (x > 0.0) else 0.0
+
 # ELU
 # -------------------------------------
-class ELU(BaseAct):
+class ELU(ReLU):
 
   def __init__(self, alpha=1.0):
     self.alpha = float(alpha)
-    self._fun = np.vectorize(self._fun)
-    self._jac = np.vectorize(self._jac)
     super(ELU, self).__init__()
 
   def _fun(self, x):
