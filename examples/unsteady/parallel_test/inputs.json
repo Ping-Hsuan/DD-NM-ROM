@@ -1,5 +1,5 @@
 {
-  "system": "coral",
+  "system": "toss",
 
   "pathfile": "./../../../PATHS.txt",
 
@@ -16,26 +16,26 @@
     "ranges": {
       "interior": {
         "latent_dim": {
-          "start": 8,
-          "stop": 21,
-          "step": 4
+          "start": 12,
+          "stop": 37,
+          "step": 6
         },
         "row_nonzero": {
-          "start": 6,
-          "stop": 13,
-          "step": 6
+          "start": 10,
+          "stop": 11,
+          "step": 2
         }
       },
       "port": {
         "latent_dim": {
           "start": 6,
-          "stop": 11,
+          "stop": 15,
           "step": 2
         },
         "row_nonzero": {
-          "start": 4,
+          "start": 8,
           "stop": 9,
-          "step": 4
+          "step": 2
         }
       }
     }

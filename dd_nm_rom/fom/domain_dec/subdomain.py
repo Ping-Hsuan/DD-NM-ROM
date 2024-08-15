@@ -3,40 +3,33 @@ import scipy.sparse as sp
 
 from dd_nm_rom import ops
 from dd_nm_rom import backend as bkd
+from typing import Dict, Tuple, Union
 
+from . import dtypes
 from .state import SubdomainElementState
 
 
 class Subdomain(object):
   """
-  Class for generating a subdomain of the DD-FOM for the 2D steady-state Burgers" Equation with Dirichlet BC.
-
-  inputs:
-  self.monolithic: instance of Burgers2D class representing full domain problem
-  nodes_ind["res"]: array of residual nodes_ind corresponding to the subdomain to be generated
-  nodes_ind["interior"]: array of interior nodes_ind corresponding to the subdomain to be generated
-  nodes_ind["interface"]: array of nodes_ind["interface"] nodes_ind corresponding to the subdomain to be generated
-  cmat_intf: constraint matrix corresponding to the interface states of the subdomain
-  ports: array containing which ports the subdomain belongs to
-
-  methods:
-  set_bc: update boundary condition data on subdomain
-  res_jac: compute residual and its jacobian on the subdomain
+  Class for generating a subdomain of the DD-FOM for
+  the 2D steady-state Burgers' equation.
   """
 
   # Initialization
   # ===================================
   def __init__(
     self,
-    monolithic,
-    nodes_ind,
-    cmat,
-    ports,
-    port_to_nodes,
-    scaling=1.0
-  ):
+    identifier: Tuple[int, int],
+    monolithic: dtypes.FOM_TYPE,
+    nodes_ind: Dict[str, np.ndarray],
+    cmat: Dict[str, sp.spmatrix],
+    ports: np.ndarray,
+    port_to_nodes: Dict[int, np.ndarray],
+    scaling: float = 1.0
+  ) -> None:
+    self.identifier = identifier
     self.monolithic = monolithic
-    for k in ("ops_names",):
+    for k in ("ops_names", "mesh"):
       setattr(self, k, getattr(self.monolithic, k))
     self.nodes_ind = nodes_ind
     self.cmat = cmat
@@ -51,51 +44,37 @@ class Subdomain(object):
       nodes_state=self.nodes_ind[e_k]
     ) for e_k in ("res", "interior", "interface")}
 
-  # RHS/Jacobian
+  # Residual/Jacobian
   # ===================================
-  def rhs_jac(
+  def res_jac(
     self,
-    uv,
-    lambdas,
-    steady=True,
-    dt=0.0,
-    uv_old=None
-  ):
+    uv: dtypes.UV_TYPE,
+    lambdas: np.ndarray,
+    steady: bool = True,
+    dt: float = 0.0,
+    uv_old: Union[dtypes.UV_TYPE, None] = None
+  ) -> dtypes.KKT_TYPE:
     """
-    Compute residual and its jacobians with respect to interior and interface states.
-
-    inputs:
-    u_interior: (n_interior,) vector of u interior states
-    v_interior: (n_interior,) vector of v interior states
-    u_interface: (n_interface,) vector of u interface states
-    v_interface: (n_interface,) vector of  v interface states
-    lambdas        : (n_constraints,) vector of lagrange multipliers
-
-    outputs:
-    rhs: (2*n_res,) residual vector with u and v residuals concatenated
-    jac: (2*n_res, n_interior+n_interface) array - jacobian of residual w.r.t. (w_intr, w_intf)
-    H:   Hessian submatrix for SQP solver
-    rhs: RHS block vector in SQP solver
-    Ax : constraint matrix times interface state
-
+    Compute residual and its jacobians with respect
+    to interior and interface states.
     """
     # Assemble u and v on residual region
     uv = self.map_on_res(uv)
     if (not steady):
       uv_old = self.map_on_res(uv_old)
-    # RHS and Jacobian
-    rhs, jac = self.compute_rhs_jac(
+    # Residual and Jacobian
+    res, jac = self.compute_res_jac(
       uv=uv,
       elem_states=self.elem_states,
       steady=steady,
       dt=dt,
       uv_old=uv_old
     )
-    crhs, cjac = self.compute_crhs_cjac(uv=uv)
+    cres, cjac = self.compute_cres_cjac(uv=uv)
     # Return KKT system
     return self.assemble_kkt(
-      rhs=rhs,
-      crhs=crhs,
+      res=res,
+      cres=cres,
       lambdas=lambdas,
       jac=jac,
       cjac=cjac,
@@ -104,8 +83,8 @@ class Subdomain(object):
 
   def map_on_res(
     self,
-    uv
-  ):
+    uv: dtypes.UV_TYPE
+  ) -> dtypes.UV_TYPE:
     uv["res"] = {}
     for x_k in ("u", "v"):
       x_v = 0.0
@@ -114,29 +93,29 @@ class Subdomain(object):
       uv["res"][x_k] = x_v
     return uv
 
-  # RHS/Jacobian - PDE
+  # Residual/Jacobian - PDE
   # -----------------------------------
-  def compute_rhs_jac(
+  def compute_res_jac(
     self,
-    uv,
-    elem_states,
-    steady=True,
-    dt=0.0,
-    uv_old=None,
-    jac_fun=None
-  ):
+    uv: dtypes.UV_TYPE,
+    elem_states: Dict[str, callable],
+    steady: bool = True,
+    dt: float = 0.0,
+    uv_old: Union[dtypes.UV_TYPE, None] = None,
+    jac_fun: Union[callable, None] = None
+  ) -> dtypes.RES_JAC_TYPE:
     # Precompute actions of operators
     ops_uv = self.action_ops(uv, elem_states)
-    # RHS and Jacobian
-    rhs = self.compute_rhs(uv, elem_states, ops_uv, steady, dt, uv_old)
+    # Residual and Jacobian
+    res = self.compute_res(uv, elem_states, ops_uv, steady, dt, uv_old)
     jac = self.compute_jac(uv, elem_states, ops_uv, steady, dt, jac_fun)
-    return rhs, jac
+    return res, jac
 
   def action_ops(
     self,
-    uv,
-    elem_states
-  ):
+    uv: dtypes.UV_TYPE,
+    elem_states: Dict[str, callable]
+  ) -> dtypes.UV_TYPE:
     ops_uv = {}
     for x_k in ("u", "v"):
       ops_uv[x_k] = {}
@@ -150,31 +129,31 @@ class Subdomain(object):
         ops_uv[x_k][op_k] = op_v
     return ops_uv
 
-  def compute_rhs(
+  def compute_res(
     self,
-    uv,
-    elem_states,
-    ops_uv,
-    steady=True,
-    dt=0.0,
-    uv_old=None
-  ):
+    uv: dtypes.UV_TYPE,
+    elem_states: Dict[str, callable],
+    ops_uv: dtypes.UV_TYPE,
+    steady: bool = True,
+    dt: float = 0.0,
+    uv_old: Union[dtypes.UV_TYPE, None] = None
+  ) -> np.ndarray:
     # Compute
-    rhs = self._compute_rhs(uv, elem_states, ops_uv)
+    res = self._compute_res(uv, elem_states, ops_uv)
     # Backward Euler for integration
     if (not steady):
       for x_k in ("u", "v"):
         x_kk = x_k if (x_k in uv["res"].keys()) else x_k+"_"+x_k
-        rhs[x_k] = uv["res"][x_kk] - uv_old["res"][x_kk] - dt * rhs[x_k]
+        res[x_k] = uv["res"][x_kk] - uv_old["res"][x_kk] - dt * res[x_k]
     # Return
-    return np.concatenate([rhs[x_k] for x_k in ("u", "v")])
+    return np.concatenate([res[x_k] for x_k in ("u", "v")])
 
-  def _compute_rhs(
+  def _compute_res(
     self,
-    uv,
-    elem_states,
-    ops_uv
-  ):
+    uv: dtypes.UV_TYPE,
+    elem_states: Dict[str, callable],
+    ops_uv: dtypes.UV_TYPE
+  ) -> Dict[str, np.ndarray]:
     bc_f = elem_states["res"].bc_f
     dx = {}
     for x_k in ("u", "v"):
@@ -191,13 +170,13 @@ class Subdomain(object):
 
   def compute_jac(
     self,
-    uv,
-    elem_states,
-    ops_uv,
-    steady=True,
-    dt=0.0,
-    jac_fun=None
-  ):
+    uv: dtypes.UV_TYPE,
+    elem_states: Dict[str, callable],
+    ops_uv: dtypes.UV_TYPE,
+    steady: bool = True,
+    dt: float = 0.0,
+    jac_fun: Union[callable, None] = None
+  ) -> Dict[str, sp.spmatrix]:
     # Compute
     jac_fun = self._compute_jac if (jac_fun is None) else jac_fun
     jac = jac_fun(uv, elem_states, ops_uv)
@@ -210,10 +189,10 @@ class Subdomain(object):
 
   def _compute_jac(
     self,
-    uv,
-    elem_states,
-    ops_uv
-  ):
+    uv: dtypes.UV_TYPE,
+    elem_states: Dict[str, callable],
+    ops_uv: dtypes.UV_TYPE
+  ) -> Dict[str, sp.spmatrix]:
     jac = {}
     bc_f = elem_states["res"].bc_f
     jac_uu = ops.sp_diag(ops_uv["u"]["Ax"] - bc_f["u"]["A"]["x"])
@@ -237,38 +216,38 @@ class Subdomain(object):
       )
     return jac
 
-  # RHS/Jacobian - Constraint
+  # Residual/Jacobian - Constraints
   # -----------------------------------
-  def compute_crhs_cjac(
+  def compute_cres_cjac(
     self,
-    uv
-  ):
+    uv: dtypes.UV_TYPE
+  ) -> dtypes.RES_JAC_TYPE:
     cx = np.concatenate([uv["interface"][x_k] for x_k in ("u", "v")])
-    crhs = self.cmat["interface"] @ cx
-    return crhs, self.cmat
+    cres = self.cmat["interface"] @ cx
+    return cres, self.cmat
 
   # KKT system
   # -----------------------------------
   def assemble_kkt(
     self,
-    rhs,
-    crhs,
-    lambdas,
-    jac,
-    cjac,
-    scaling
-  ):
+    res: np.ndarray,
+    cres: np.ndarray,
+    lambdas: np.ndarray,
+    jac: Dict[str, Union[np.ndarray, sp.spmatrix]],
+    cjac: Dict[str, Union[np.ndarray, sp.spmatrix]],
+    scaling: float
+  ) -> dtypes.KKT_TYPE:
     # To sparse
     jac = ops.map_nested_dict(jac, bkd.to_sparse)
     cjac = ops.map_nested_dict(cjac, bkd.to_sparse)
-    # RHS
-    rhs = np.concatenate([
-      scaling*(jac["interior"].T@rhs),
-      scaling*(jac["interface"].T@rhs) + cjac["interface"].T@lambdas
+    # Residual
+    res = np.concatenate([
+      scaling*(jac["interior"].T@res),
+      scaling*(jac["interface"].T@res) + cjac["interface"].T@lambdas
     ])
     # Constraints
     cjac = sp.hstack([cjac["interior"], cjac["interface"]])
     # Hessian
     jac = sp.hstack([jac["interior"], jac["interface"]])
     hess = scaling*(jac.T@jac)
-    return rhs, crhs, hess, cjac
+    return res, cres, hess, cjac

@@ -7,8 +7,8 @@ from dd_nm_rom import backend as bkd
 _LOSS_IDS = ("mae", "mare", "mse", "msre")
 
 def get(
-  identifier='mse',
-  reduction='mean'
+  identifier="mse",
+  reduction="mean"
 ):
   if (isinstance(identifier, str) and (identifier.lower() in _LOSS_IDS)):
     return {
@@ -27,7 +27,7 @@ class MARELoss(loss._Loss):
 
   def __init__(
     self,
-    reduction: str = 'mean'
+    reduction: str = "mean"
   ) -> None:
     super(MARELoss, self).__init__(reduction=reduction)
 
@@ -45,9 +45,9 @@ class MARELoss(loss._Loss):
     num = torch.sum(num, dim=-1)
     den = torch.sum(den, dim=-1) + bkd.epsilon()
     loss = num / den
-    if (self.reduction == 'mean'):
+    if (self.reduction == "mean"):
       return torch.mean(loss)
-    elif (self.reduction == 'sum'):
+    elif (self.reduction == "sum"):
       return torch.sum(loss)
     else:
       return loss
@@ -57,7 +57,7 @@ class MSRELoss(MARELoss):
 
   def __init__(
     self,
-    reduction: str = 'mean'
+    reduction: str = "mean"
   ) -> None:
     super(MSRELoss, self).__init__(reduction=reduction)
 

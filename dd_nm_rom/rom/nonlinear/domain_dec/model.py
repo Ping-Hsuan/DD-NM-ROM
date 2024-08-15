@@ -2,6 +2,7 @@ import copy
 import torch
 import numpy as np
 import scipy.sparse as sp
+import numpy_indexed as npi
 
 from time import time
 from dd_nm_rom import ops
@@ -14,51 +15,9 @@ from ..autoencoder import AutoencoderNP, MultiAutoencoderNP
 
 
 class DD_NM_ROM(object):
-  '''
+  """
   Compute DD NM-ROM for the 2D steady-state Burgers' equation with Dirichlet BC.
-
-  inputs:
-  dd_fom: DD model class corresponding to full order DD model.
-  intr_net_list: list of paths to trained networks for interior states
-  intf_net_list: list of paths to trained networks for interface states
-  port_net_list:  [optional] list of paths to trained networks for port states. Required for constraint_type=='strong'
-  residual_bases: [optional] list of residual bases where residual_bases[i] is the residual basis for the ith subdomain
-  hr: [optional] Boolean to specify if hyper reduction is applied. Default is False
-  hr_type: [optional] Hyper-reduction type. Either 'gappy_POD' or 'collocation'.
-        Only takes effect if hr=True. Default is 'collocation'
-  sample_ratio: [optional] ratio of number of hyper-reduction samples to residual basis size. Default is 2
-  n_samples: [optional] specify number of hyper reduction sample nodes.
-        If n_samples is an array with length equal to the number of subdomains, then
-        n_samples[i] is the number of HR samples on the ith subdomain.
-
-        If n_samples is a positive integer, then each subdomain has n_samples HR nodes.
-
-        Otherwise, the number of samples is determined by the sample ratio.
-        Default is -1.
-
-  n_corners: [optional] Number of interface nodes included in the HR sample nodes.
-        If n_corners is an array with length equal to the number of subdomains, then
-        n_corners[i] is the number of interface HR nodes on the ith subdomain.
-
-        If n_corners is a positive integer, then each subdomain has n_corners interface HR nodes.
-
-        Otherwise, the number of interface HR nodes on each subdomain is determined by n_samples
-        multiplied by the ratio of the number of interface nodes contained in the residual nodes
-        to the total number of residual nodes.
-
-        Default is -1.
-
-  n_constraints: [optional] number of weak constraints for NLP. Default is 1
-  constraint_type: [optional] 'weak' or 'strong' port constraints. Default is 'weak'.
-
-  fields:
-  subdomain: list of subdomain_LS_ROM or subdomain_LS_ROM_HR classes corresponding to each subdomain, i.e.
-         subdomain[i] = reduced subdomain class corresponding to subdomain [i]
-
-  methods:
-  FJac: computes the KKT system to be solved at each iteration of the Lagrange-Newton SQP solver.
-  solve: solves for the reduced states of the DD NM-ROM using the Lagrange-Newton-SQP method.
-  '''
+  """
 
   def __init__(
     self,
@@ -122,7 +81,7 @@ class DD_NM_ROM(object):
           sub_fom=sub,
           scaling=self.scaling,
           constraint_type=self.constraint_type,
-          res_bases=self.res_bases[s] if (self.res_bases is not None) else None,
+          res_bases=self.get_res_bases(s),
           hr_n_samples=self.hr_n_samples,
           hr_n_edge_samples_ratio=self.hr_n_edge_samples_ratio,
           hr_sample_small_ports=self.hr_sample_small_ports,
@@ -140,6 +99,23 @@ class DD_NM_ROM(object):
     self.steady = True
     self.x_old = None
     self.dt = 0.0
+
+  def get_res_bases(self, index=0):
+    if (self.res_bases is not None):
+      if isinstance(self.res_bases, (list, tuple)):
+        if (len(self.res_bases) != self.mesh.n_sub):
+          raise ValueError(
+            "The number of residual bases matrices provided " \
+            "does not match the number of subdomains."
+          )
+        else:
+          return self.res_bases[index]
+      elif isinstance(self.res_bases, np.ndarray):
+        return copy.deepcopy(self.res_bases)
+      else:
+        raise ValueError(
+          "The 'res_bases' input must be either a list or a NumPy array."
+        )
 
   def get_ndof(self):
     ndof = 0
@@ -191,7 +167,7 @@ class DD_NM_ROM(object):
         # > Duplicate for u and v
         port_ind = np.concatenate([port_ind, port_ind+self.mesh.nxy])
         intf_ind = np.concatenate([intf_ind, intf_ind+self.mesh.nxy])
-        fom_ind = np.nonzero(np.isin(intf_ind, port_ind))[0]
+        fom_ind = npi.indices(intf_ind, port_ind, missing="mask").compressed()
         # ROM
         port_dim = self.rom_dim["port"][p]
         rom_ind = np.arange(port_dim)+shift
@@ -285,31 +261,18 @@ class DD_NM_ROM(object):
         shift += port_dim
     return cmat
 
-  # RHS/Jacobian
+  # Residual/Jacobian
   # ===================================
-  def rhs_jac(
+  def res_jac(
     self,
     x
   ):
-    '''
-    Computes the KKT system to be solved at each iteration of the Lagrange-Newton SQP solver.
-
-    inputs:
-    w: vector of all interior and interface states for each subdomain
-       and the lagrange multipliers lam in the order
-      [intr[0], intf[0], ..., intr[n_subs], intf[n_subs], lam]
-
-    outputs:
-    val: RHS of the KKT system
-    full_jac: KKT matrix
-    runtime: "parallel" runtime to assemble KKT system
-    '''
     runtime = 0.0
     # Initialize
     # -------------
     start = time()
-    rhs, hess, cjac = [], [], []
-    crhs = np.zeros(self.n_constraints)
+    res, hess, cjac = [], [], []
+    cres = np.zeros(self.n_constraints)
     # > Set Lagrangian multipliers
     lambdas = x[-self.n_constraints:]
     runtime += time()-start
@@ -323,7 +286,7 @@ class DD_NM_ROM(object):
     for (s, sub) in enumerate(self.subdomains):
       start_s = time()
       # > Compute quantities needed for KKT system
-      rhs_s, crhs_s, hess_s, cjac_s = sub.rhs_jac(
+      res_s, cres_s, hess_s, cjac_s = sub.res_jac(
         z=z[s],
         lambdas=lambdas,
         steady=self.steady,
@@ -333,8 +296,8 @@ class DD_NM_ROM(object):
       runtime_s = max(time()-start_s, runtime_s)
       # > Store subdomain-related quantities
       start = time()
-      rhs.append(rhs_s)
-      crhs += crhs_s
+      res.append(res_s)
+      cres += cres_s
       cjac.append(cjac_s)
       hess.append(hess_s)
       runtime += time()-start
@@ -342,11 +305,11 @@ class DD_NM_ROM(object):
     # Assemble
     # -------------
     start = time()
-    rhs, jac = self.dd_fom.assemble_kkt(rhs, crhs, cjac, hess)
+    res, jac = self.dd_fom.assemble_kkt(res, cres, cjac, hess)
     runtime += time()-start
     self.runtime["total"] += runtime
-    self.runtime["rhs_jac"] += runtime
-    return rhs, jac
+    self.runtime["res_jac"] += runtime
+    return res, jac
 
   def extract_z_sub_from_vec(
     self,
@@ -365,7 +328,7 @@ class DD_NM_ROM(object):
       z.append(z_s)
       runtime_s = max(time()-start_s, runtime_s)
     self.runtime["total"] += runtime_s
-    self.runtime["rhs_jac"] += runtime_s
+    self.runtime["res_jac"] += runtime_s
     return z
 
   # Encode/Decode
@@ -460,19 +423,7 @@ class DD_NM_ROM(object):
     verbose=False
   ):
     """
-    Solves for the u and v states of the FOM using Newton"s method.
-
-    inputs:
-    u0: (nx*ny,) initial u vector
-    v0: (nx*ny,) initial v vector
-    tol: [optional] stopping tolerance for Newton solver. Default is 1e-10
-    maxit: [optional] max number of iterations for newton solver. Default is 100
-    print_hist: [optional] Boolean to print iteration history for Newton solver. Default is False
-
-    outputs:
-    u: (nx*ny,) u final solution vector
-    v: (nx*ny,) v final solution vector
-    res_vecs: (it, nx*ny) array where res_vecs[i] is the PDE residual evaluated at the ith Newton iteration
+    Solves for the u and v states of the FOM using Newton's method.
     """
     self.runtime = ops.map_nested_dict(self.runtime, lambda _: 0.0)
     self.runtime["total"] += runtime
@@ -492,11 +443,11 @@ class DD_NM_ROM(object):
     self.steady = bool(steady)
     if self.steady:
       dt, nt = 0.0, 1
-    x, rhs, *_, flag = solver(x0, dt, nt, guess, use_guess)
+    x, res, *_, flag = solver(x0, dt, nt, guess, use_guess)
     converged = True if (flag[-1] == 0) else False
     # Assemble solution
     uv, z, lambdas = self.assemble_sol(x, map_on_res=True)
-    return uv, z, lambdas, rhs, converged
+    return uv, z, lambdas, res, converged
 
   def get_init_sol(
     self,
@@ -519,27 +470,9 @@ class DD_NM_ROM(object):
     relative=True,
     axis=None
   ):
-    '''
+    """
     Compute error between DD-ROM and DD-FOM DD solutions.
-
-    inputs:
-    w_intr: list of reduced interior states where
-           w_intr[i] = (self.subdomains[i].rom_dim["interior"],) vector of ROM solution interior states
-    w_intf: list of reduced interface states where
-           w_intf[i] = (self.subdomains[i].rom_dim["interface"],) vector of ROM solution interface states
-
-    u_intr: list of FOM u interior states where
-           u_intr[i] = (dd_fom.subdomains[i].n_nodes["interior"],) vector of FOM u solution interior states
-    v_intr: list of FOM v interior states where
-           v_intr[i] = (dd_fom.subdomains[i].n_nodes["interior"],) vector of FOM v solution interior states
-    u_intf: list of FOM u interface states where
-           u_intf[i] = (dd_fom.subdomains[i].n_interface,) vector of FOM u solution interface states
-    v_intf: list of FOM v interface states where
-           v_intf[i] = (dd_fom.subdomains[i].n_interface,) vector of FOM v solution interface states
-
-    output:
-    error: square root of mean squared relative error on each subdomain
-    '''
+    """
     err = 0.0
     for s in range(self.mesh.n_sub):
       num_s, den_s = 0.0, 0.0

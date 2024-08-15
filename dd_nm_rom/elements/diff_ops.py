@@ -1,36 +1,55 @@
 import numpy as np
 import scipy.sparse as sp
 
-from typing import List, Union
+from typing import List
 
-from .mesh import MeshDD, MeshMono
-from .bound_cond import DirichletBC, NeumannBC
+from . import mesh as mesh_mod
+from . import bound_cond as bc_mod
 
 
 class DiffOperators(object):
+  """
+  A class to build and manage differential operators for a given mesh 
+  and boundary conditions.
+
+  :param nu: Viscosity or diffusion coefficient.
+  :type nu: float
+  :param bc: Boundary conditions.
+  :type bc: BC_TYPES
+  :param mesh: Mesh object containing grid information.
+  :type mesh: MESH_TYPES
+  """
 
   # Initialization
   # ===================================
   def __init__(
     self,
     nu: float,
-    bc: Union[DirichletBC, NeumannBC],
-    mesh: Union[MeshDD, MeshMono]
+    bc: bc_mod.BC_TYPES,
+    mesh: mesh_mod.MESH_TYPES,
   ) -> None:
     self.nu = nu
     self.bc = bc
     self.mesh = mesh
     self.built = False
 
-  def is_built(self):
+  # Building
+  # ===================================
+  def is_built(self) -> None:
+    """
+    Check if the differential operators have been built.
+
+    :raises ValueError: If the differential operators are not built.
+    """
     if (not self.built):
       raise ValueError(
         "Differential operators not built. Please, call 'build' method first."
       )
 
-  # Build
-  # ===================================
   def build(self) -> None:
+    """
+    Build the differential operators for the mesh and boundary conditions.
+    """
     self.ops = {"D": 0.0}
     for axis in ("x", "y"):
       h = self.mesh.h[axis]
@@ -46,6 +65,19 @@ class DiffOperators(object):
     stencil: List[int],
     diags: List[int]
   ) -> sp.spmatrix:
+    """
+    Build a differential operator for a given axis.
+
+    :param axis: The axis for which to build the operator ('x' or 'y').
+    :type axis: str
+    :param stencil: Coefficients for the finite difference stencil.
+    :type stencil: List[int]
+    :param diags: Diagonals for the sparse matrix representation.
+    :type diags: List[int]
+
+    :return: The constructed sparse matrix operator.
+    :rtype: sp.spmatrix
+    """
     n = self.mesh.n
     e = np.ones(n[axis])
     # Operator

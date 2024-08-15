@@ -14,6 +14,6 @@
 ### ---------------
 ### Loading conda env thanks to interactive shell
 ### > See: 'dd-nm-rom/conda/README.md' file
-load_conda_env
+load_conda_env_coral
 ### Launch program
 python -u ./../scripts/train_rom_port.py --inpfile ./../inputs/train_rom_port.json

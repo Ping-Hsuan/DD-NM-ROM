@@ -10,19 +10,7 @@ from . import activation as act_mod
 
 
 class Block(object):
-  '''
-  Generic class for encoder part of autoencoder.
-  The struture is shallow with one hidden layer.
 
-  inputs:
-  input_dim:  dimension of input data
-  hidden_dim: dimension of linear hidden layer
-  latent_dim: dimension of latent dimension
-  mask:       sparsity mask in coo format
-  scale:      (input_dim) tensor for scaling input data
-  ref:        (input_dim) tensor for shifting input data
-  activation: [optional] activation function between hidden and output layer. 'Swish' or 'Sigmoid'. Default is 'Sigmoid'
-  '''
   def __init__(
     self,
     config

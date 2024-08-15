@@ -7,21 +7,6 @@ from dd_nm_rom.rom.utils import hyper_red as hr_mod
 
 
 class SubdomainElementStateROM(object):
-  """
-  Class for generating residual, interior, and interface subdomain indices for a steady-state 2D Burgers FOM.
-
-  inputs:
-  monolithic: instance of `Burgers2D` class
-  n_sub_x: integer number of subs in x direction
-  n_sub_y: integer number of subs in y direction
-
-  fields:
-  rhs:       list, rhs[i] = array of residual indices on subdomain i
-  interior:  list, interior[i] = array of interior indices on subdomain i
-  interface: list, interface[i] = array of interface indices on subdomain i
-  full:      list, full[i] = array of full state (interior and interface) indices on subdomain i
-  self.skeleton:  array of indices of self.skeleton, i.e. all interface states for all subs
-  """
 
   # Initialization
   # ===================================
@@ -79,8 +64,8 @@ class SubdomainElementStateROM(object):
       self.bc_f = self._bc_f
     self.set_decoder_hr(active=self.hr_active)
 
-  def init_hr_mode(self, hr_nodes_res_all):
-    self.hr_nodes_res_all = hr_nodes_res_all
+  def init_hr_mode(self, hr_nodes_res):
+    self.hr_nodes_res = hr_nodes_res
     self.set_indices_hr()
     self.set_ops_bc_hr()
     self.set_decoder_hr(active=True, row_ind=self.hr_nodes_state_all)
@@ -91,13 +76,6 @@ class SubdomainElementStateROM(object):
   def set_indices_hr(self):
     # Vector indices
     # -------------
-    # Split HR residual nodes for u and v
-    n_nodes_res = self.state_fom.n_nodes_res
-    self.hr_nodes_res = {
-      "u": self.hr_nodes_res_all[self.hr_nodes_res_all  < n_nodes_res],
-      "v": self.hr_nodes_res_all[self.hr_nodes_res_all >= n_nodes_res] \
-           - n_nodes_res
-    }
     # Get state nodes
     self.hr_nodes_state = {}
     self.hr_nodes_state_all = []

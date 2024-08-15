@@ -1,19 +1,19 @@
 #!/bin/bash -i
 
-### LSF syntax
+### Slurm syntax
 ### ---------------
-#BSUB -nnodes 1                  #number of nodes
-#BSUB -W 12:00                   #walltime in hours:minutes
-#BSUB -e gen_data_3_err.txt  #stderr
-#BSUB -o gen_data_3_out.txt  #stdout
-#BSUB -J gen_data_3          #name of job
-#BSUB -q pbatch                  #queue to use
-#BSUB -G sosu                    #account
+#SBATCH -N 1                     #number of nodes
+#SBATCH -t 24:00:00              #walltime in hours:minutes:seconds
+#SBATCH -e gen_data_err.txt      #stderr
+#SBATCH -o gen_data_out.txt      #stdout
+#SBATCH -J gen_data              #name of job
+#SBATCH -p pbatch                #queue to use
+#SBATCH -A sosu                  #account
 
 ### Shell scripting
 ### ---------------
 ### Loading conda environment thanks to interactive shell
 ### > See: 'dd-nm-rom/conda/README.md' file
-load_conda_env_coral
+load_conda_env_toss
 ### Launch program
-python -u ./../scripts/generate_data.py --inpfile ./../inputs/generate_data_big.json
+python -u ./../scripts/generate_data.py --inpfile ./../inputs/generate_data.json

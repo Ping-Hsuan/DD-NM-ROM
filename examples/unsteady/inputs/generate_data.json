@@ -10,20 +10,25 @@
     "seed": null
   },
   "mesh": {
-    "nx_intr": 48,
-    "ny_intr": 48,
-    "lx_sub": 0.5,
-    "ly_sub": 0.5,
-    "x0": 0.0,
-    "y0": 0.0,
-    "n_sub_x": 2,
-    "n_sub_y": 2
+    "name": "MeshDD",
+    "kwargs": {
+      "nx_intr": 48,
+      "ny_intr": 48,
+      "lx_sub": 0.5,
+      "ly_sub": 0.5,
+      "x0": 0.0,
+      "y0": 0.0,
+      "n_sub_x": 2,
+      "n_sub_y": 2,
+      "with_bounds": true
+    }
   },
   "field": {
     "name": "SinMultiPeak",
     "kwargs": {
       "mu_lim": [0.5, 1.5],
-      "forced_config": [1,0,0,0]
+      "forced_config": [1,0,0,0],
+      "bc_type": "periodic"
     }
   },
   "fom": {
@@ -53,7 +58,7 @@
       "train": 2000,
       "test": 50
     },
-    "n_workers": 100
+    "n_workers": 50
   },
   "save_dir": "/g/g92/zanardi1/Workspace/Codes/DD-NM-ROM/run/unsteady/dset.2by2/datagen/"
 }

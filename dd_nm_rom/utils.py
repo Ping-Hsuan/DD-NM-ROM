@@ -6,9 +6,7 @@ import joblib as jl
 import dill as pickle
 
 from tqdm import tqdm
-from dd_nm_rom import ops
 from typing import Any, List, Union
-from dd_nm_rom import fom as fom_mod
 
 
 # Classes
@@ -21,24 +19,22 @@ def get_class(
   """
   Return a class object given its name and the module it belongs to.
 
+  This function searches for a class with the specified name within the given 
+  module(s). If found, it can return an instance of the class with optional 
+  keyword arguments provided in `kwargs`. If no class is found, an error is 
+  raised.
+
   :param modules: A module or a list of modules to search for the class.
   :type modules: list or module
-
   :param name: The name of the class to retrieve.
   :type name: str, optional
-
-  :param kwargs: Optional keyword arguments to pass when initializing the
-                 class (it can contain the name of the class if 'name'
+  :param kwargs: Optional keyword arguments to pass when initializing the 
+                 class (it can contain the name of the class if 'name' 
                  is not provided).
   :type kwargs: dict, optional
 
   :return: An instance of the class if found, or the class itself.
   :rtype: object or class
-
-  This function searches for a class with the specified name within the given
-  module(s). If found, it can return an instance of the class with optional
-  keyword arguments provided in `kwargs`. If no class is found, an error is
-  raised.
   """
   # Check class name
   if ((name is None) and (kwargs is not None)):
@@ -61,7 +57,18 @@ def get_class(
   names = [module.__name__ for module in modules]
   raise ValueError(f"Class `{name}` not found in modules: {names}.")
 
-def check_path(path):
+def check_path(path: str) -> None:
+  """
+  Check if the specified path exists.
+
+  :param path: The path to check.
+  :type path: str
+
+  :return: None
+  :rtype: None
+
+  :raises IOError: If the path does not exist.
+  """
   if (not os.path.exists(path)):
     raise IOError(f"Path '{path}' does not exist.")
 
@@ -72,6 +79,22 @@ def save_case(
   index: int,
   data: Any
 ) -> None:
+  """
+  Save simluated case to a file with specific format.
+
+  The file is saved with a name formatted as `case_{index}.p`, where `index` 
+  is zero-padded to 5 digits.
+
+  :param path: Directory path where the file will be saved.
+  :type path: str
+  :param index: Index used to generate the filename.
+  :type index: int
+  :param data: Data to be saved in the file.
+  :type data: Any
+
+  :return: None
+  :rtype: None
+  """
   filename = path + f"/case_{str(index+1).zfill(5)}.p"
   pickle.dump(data, open(filename, "wb"))
 
@@ -80,6 +103,23 @@ def load_case(
   index: int,
   key: Union[str, None] = None
 ) -> Any:
+  """
+  Load simluated case from a file and optionally retrieve a specific item.
+
+  Constructs the filename from the provided path and index, then loads 
+  the data from this file. If a key is specified, return the value associated 
+  with that key. Otherwise, return the entire data.
+
+  :param path: Directory path where the case file is located.
+  :type path: str
+  :param index: Index used to generate the filename.
+  :type index: int
+  :param key: Optional key to retrieve a specific item from the data.
+  :type key: Union[str, None]
+
+  :return: The data from the file, or the specific item if a key is provided.
+  :rtype: Any
+  """
   filename = path + f"/case_{str(index+1).zfill(5)}.p"
   if os.path.exists(filename):
     data = pickle.load(open(filename, "rb"))
@@ -93,7 +133,26 @@ def load_case_parallel(
   ranges: List[int],
   key: Union[str, None] = None,
   n_workers: int = 1
-) -> Any:
+) -> List[Any]:
+  """
+  Load simluated cases in parallel or sequentially based on the number 
+  of workers.
+
+  This function uses `joblib` to parallelize the loading of cases if 
+  `n_workers` is greater than 1. Otherwise, it loads the cases sequentially.
+
+  :param path: Path to the data source.
+  :type path: str
+  :param ranges: Range of indices for the cases to be loaded.
+  :type ranges: List[int]
+  :param key: Optional key to pass to the `load_case` function.
+  :type key: Union[str, None]
+  :param n_workers: Number of parallel workers to use. Default is 1.
+  :type n_workers: int
+
+  :return: A list of loaded cases.
+  :rtype: List[Any]
+  """
   iterable = tqdm(
     iterable=range(*ranges),
     ncols=80,
@@ -114,9 +173,34 @@ def generate_case_parallel(
   desc: str = "> Cases",
   verbose: bool = True
 ) -> None:
+
   """
-  The 'sol_fun' callable function needs to return
-  if the solver has converged or not as 0 or 1.
+  Generate cases in parallel and check solver convergence.
+
+  The `sol_fun` callable function should return 0 or 1 to indicate whether 
+  the solver has converged or not.
+
+  :param sol_fun: A callable that performs the solver operation and returns 
+                  convergence status as 0 or 1.
+  :type sol_fun: callable
+  :param n_samples: Number of samples or cases to generate.
+  :type n_samples: int
+  :param n_workers: Number of parallel workers to use. Defaults to 1.
+  :type n_workers: int
+  :param desc: Description to display in the progress bar. Defaults to
+               "> Cases".
+  :type desc: str
+  :param verbose: If True, prints the total number of converged cases. 
+                  Defaults to True.
+  :type verbose: bool
+
+  :return: None
+  :rtype: None
+
+  This function uses `joblib` for parallel processing and `tqdm` for showing 
+  a progress bar. It applies the `sol_fun` function to a range of sample 
+  indices and collects convergence results. If `verbose` is True, it prints 
+  the total number of converged cases.
   """
   iterable = tqdm(
     iterable=range(n_samples),

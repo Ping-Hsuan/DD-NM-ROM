@@ -3,33 +3,20 @@ import scipy.sparse as sp
 
 from dd_nm_rom import ops
 
+from . import dtypes
+
 
 class SubdomainElementState(object):
-  """
-  Class for generating residual, interior, and interface subdomain indices for a steady-state 2D Burgers FOM.
-
-  inputs:
-  monolithic: instance of `Burgers2D` class
-  n_sub_x: integer number of subs in x direction
-  n_sub_y: integer number of subs in y direction
-
-  fields:
-  rhs:       list, rhs[i] = array of residual indices on subdomain i
-  interior:  list, interior[i] = array of interior indices on subdomain i
-  interface: list, interface[i] = array of interface indices on subdomain i
-  full:      list, full[i] = array of full state (interior and interface) indices on subdomain i
-  self.skeleton:  array of indices of self.skeleton, i.e. all interface states for all subs
-  """
 
   # Initialization
   # ===================================
   def __init__(
     self,
-    name,
-    monolithic,
-    nodes_res,
-    nodes_state
-  ):
+    name: str,
+    monolithic: dtypes.FOM_TYPE,
+    nodes_res: np.ndarray,
+    nodes_state: np.ndarray
+  ) -> None:
     self.name = name
     self.monolithic = monolithic
     self.nodes_res = nodes_res
@@ -46,8 +33,8 @@ class SubdomainElementState(object):
     self.set_ops_bc()
 
   # Operators
-  # ===================================
-  def set_ops_bc(self):
+  # -----------------------------------
+  def set_ops_bc(self) -> None:
     # Inclusion operators
     self.iden = self.monolithic.iden[self.submat]
     self.iden_uv = sp.block_diag([self.iden, self.iden])

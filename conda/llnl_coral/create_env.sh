@@ -64,6 +64,7 @@ pip install \
   dill \
   joblib \
   matplotlib \
+  numpy-indexed \
   pandas \
   pydoe \
   scikit-learn \

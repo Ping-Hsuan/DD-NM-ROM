@@ -53,7 +53,7 @@ def generate_batch_script_toss(tag, inpfile):
 #SBATCH -e test_dd_nmrom_{tag}_err.txt   #stderr                      \n\
 #SBATCH -o test_dd_nmrom_{tag}_out.txt   #stdout                      \n\
 #SBATCH -J test_dd_nmrom_{tag}           #name of job                 \n\
-#SBATCH -q pbatch                        #queue to use                \n\
+#SBATCH -p pbatch                        #queue to use                \n\
 #SBATCH -A sosu                          #account                     \n\
                                                                       \n\
 ### Shell scripting                                                   \n\

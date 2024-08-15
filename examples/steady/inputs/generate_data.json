@@ -10,15 +10,12 @@
     "seed": 0
   },
   "mesh": {
-    "mono": {
+    "name": "MeshMono",
+    "kwargs": {
       "nx": 480,
       "ny": 24,
       "x_lim": [-1.0, 1.0],
       "y_lim": [0.0, 0.05]
-    },
-    "dd": {
-      "n_sub_x": 2,
-      "n_sub_y": 2
     }
   },
   "field": {

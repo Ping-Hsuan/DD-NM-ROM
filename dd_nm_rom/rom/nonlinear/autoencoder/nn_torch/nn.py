@@ -12,14 +12,10 @@ from .elements import generate_mask, get_activation
 
 
 class GaussianNoise(torch.nn.Module):
-  """Gaussian noise regularizer.
-
-  Args:
-    stddev (float, optional): relative standard deviation used to generate the
-      noise. Relative means that it will be multiplied by the magnitude of
-      the value your are adding the noise to. This means that stddev can be
-      the same regardless of the scale of the vector.
   """
+  Gaussian noise regularizer.
+  """
+
   def __init__(
     self,
     stddev=0.1
@@ -35,6 +31,7 @@ class GaussianNoise(torch.nn.Module):
       return x * noise
     else:
       return x
+
 
 class Identity(torch.nn.Module):
 
@@ -71,21 +68,9 @@ class Identity(torch.nn.Module):
   def forward(self, x):
     return self.net(x)
 
-# Encoder class
-class Encoder(torch.nn.Module):
-  """
-  Generic class for encoder part of autoencoder.
-  The struture is shallow with one hidden layer.
 
-  inputs:
-  input_dim:  dimension of input data
-  hidden_dim: dimension of linear hidden layer
-  latent_dim: dimension of latent dimension
-  mask:       sparsity mask in coo format
-  scale:      (input_dim) tensor for scaling input data
-  ref:        (input_dim) tensor for shifting input data
-  activation: [optional] activation function between hidden and output layer. "Swish" or "Sigmoid". Default is "Sigmoid"
-  """
+class Encoder(torch.nn.Module):
+
   def __init__(
     self,
     input_dim,
@@ -116,32 +101,11 @@ class Encoder(torch.nn.Module):
     )
 
   def forward(self, x):
-    """
-    Evaluate encoder.
-
-    input:
-    w: (input_dim) tensor of input data
-
-    output:
-    output: (latent_dim) tensor of output data
-    """
     return self.net((x-self.ref)/self.scale)
 
 
 class Decoder(torch.nn.Module):
-  """
-  Generic class for decoder part of autoencoder.
-  The struture is shallow with one hidden layer.
 
-  inputs:
-  latent_dim: dimension of latent dimension
-  hidden_dim: dimension of linear hidden layer
-  output_dim: dimension of outputs
-  mask:       sparsity mask in coo format
-  scale:      (output_dim) tensor for scaling input data
-  ref:        (output_dim) tensor for shifting input data
-  activation: [optional] activation function between hidden and output layer. "Swish" or "Sigmoid". Default is "Sigmoid"
-  """
   def __init__(
     self,
     input_dim,
@@ -167,65 +131,15 @@ class Decoder(torch.nn.Module):
     )
 
   def forward(self, x):
-    """
-    Evaluate decoder.
-
-    input:
-    w: (latent_dim) tensor of input data
-
-    output:
-    output: (output_dim) tensor of output data
-    """
     return self.scale*self.net(x)+self.ref
 
 
 class Autoencoder(torch.nn.Module):
   """
-  Class for implementing and training an autoencoder with sparse-masked decoder for model reduction.
-
-  inputs:
-  snapshots:  (n_snapshots, input_dim) array of snapshot training data
-  latent_dim: latent dimension of autoencoder
-  row_nonzero:    number of nonzeros per row of sparsity mask
-  row_shift:  amount to shift nonzero band per row in sparsity mask
-  device:     PyTorch device. "cpu" or "cuda"
-  encoder_dense: [optional] Boolean for using dense encoder. Default is False.
-  encoder_hidden: [optional] dimension of encoder hidden layer. Default uses 2*input_dim
-  activation:   [optional] activation function for encoder and decoder. "Sigmoid" or "Swish". Default is "Sigmoid"
-  test_prop:  [optional] proportion of snapshots data to be used for testing set. Default is 0.1
-  lr:         [optional] learning rate. Default is 1e-3
-  lr_patience:[optional] patience for learning rate scheduler. Default is 10
-  seed:       [optional] random seed. Default is None
-
-  fields:
-  device:      PyTorch device. "cpu" or "cuda"
-  lr:          learning rate. Default is 1e-3
-  lr_patience: patience for learning rate scheduler. Default is 10
-  ref:         reference vector for normalizing snapshot data
-  scale:       scaling vector for normalizing snapshot data
-  n_snapshots: number of snapshot data
-  test_size:   size of testing set
-  train_size:  size of training set
-  test_data:   TensorDataset of testing data
-  train_data:  TensorDataset of training data
-  input_dim:   dimension of snapshot data
-  latent_dim:  latent space dimension
-  output_dim:  output space dimension
-  row_nonzero:     number of nonzeros per row of sparsity mask
-  row_shift:   amount to shift nonzero band in per row in sparsity mask
-  mask:        sparsity mask for decoder output layer (transpose of mask for encoder input layer)
-  encoder_hidden: dimension of encoder hidden layer
-  decoder_hidden: dimension of decoder hidden layer
-  encoder:     instance of Encoder class
-  decoder:     instance of Decoder class
-  optimizer:   optimizer of autoencoder. Adam is used
-  scheduler:   learning rate scheduler. Reduce LR on Plateau is used
-  loss_fn:     loss function. MSELoss is used
-
-  methods:
-  forward:  forward pass through autoencoder, i.e. decoder(encoder(data))
-  train:    train autoencoder
+  Class for implementing and training an autoencoder
+  with sparse-masked decoder for model reduction.
   """
+
   def __init__(
     self,
     ref,

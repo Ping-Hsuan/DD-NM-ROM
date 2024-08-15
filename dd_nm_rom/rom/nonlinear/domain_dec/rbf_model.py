@@ -48,23 +48,14 @@ class RBFModel(object):
     mu,
     runtime=0.0
   ):
-    '''
+    """
     Computes initial iterate used for solving NM-ROM optimization subproblem.
-
-    inputs:
-    mu:    (1, 2) array corresponding to parameters for the 2D Burgers problem.
-    mdl:   DD_NM_ROM class
-
-    outputs:
-    w0:    interior- and interface- state vector for initial guess to optimization problem
-    lam0:  initial guess for lagrange multipliers. computed using least-squares
-    runtime: "parallel" timing for generating initial x0 and lam0 iterates
-    '''
+    """
     start = time()
     if (self.interpolator is None):
       raise ValueError("RBF interpolator not initialized.")
     mu = mu.reshape(1,-1)
-    z, rhs, jac = [], [], []
+    z, res, jac = [], [], []
     lambdas = np.zeros(self.n_constraints)
     runtime += time()-start
     runtime_s = 0.0
@@ -73,7 +64,7 @@ class RBFModel(object):
       z_s = {}
       for e_k in ("interior", "interface"):
         z_s[e_k] = self.interpolator[e_k][s](mu).squeeze()
-      rhs_s, *_, cjac_s = sub.rhs_jac(z_s, lambdas)
+      res_s, *_, cjac_s = sub.res_jac(z_s, lambdas)
       runtime_s = max(time()-start_s, runtime_s)
       start = time()
       # Solution
@@ -83,7 +74,7 @@ class RBFModel(object):
       # Lambdas
       # -----------
       size = sub.rom_dim["interface"]
-      rhs.append(rhs_s[-size:])
+      res.append(res_s[-size:])
       # Jacobian
       jac.append(cjac_s.T[-size:])
       runtime += time()-start
@@ -92,8 +83,8 @@ class RBFModel(object):
     start = time()
     z = np.concatenate(z)
     jac = sp.vstack(jac).toarray()
-    rhs = np.concatenate(rhs)
-    lambdas = la.lstsq(jac, -rhs)[0]
+    res = np.concatenate(res)
+    lambdas = la.lstsq(jac, -res)[0]
     x0 = np.concatenate([z, lambdas])
     runtime += time()-start
     return x0, runtime
@@ -107,19 +98,6 @@ class RBFModel(object):
     smoothing=0.0,
     kernel='linear'
   ):
-    '''
-    inputs:
-    params: (N, p)      input parameters for RBF interpolant
-    interior:   list of interior-state snapshots associated to params for each subdomain
-          e.g. interior[j] = (N, nx_sub*ny_sub) interior snapshot array for subdomain j
-    interface:  list of interface-state snapshots associated to params for each subdomain
-          e.g. interface[j] = (N, nx_sub*ny_sub) interface snapshot array for subdomain j
-    neighbors: [optional] see scipy.interpolate.RBFInterpolator documentation. Default is None
-    smoothing: [optional] see scipy.interpolate.RBFInterpolator documentation. Default is 0.0
-    kernel:    [optional] see scipy.interpolate.RBFInterpolator documentation. Default is 'thin_plate_spline'
-    epsilon:   [optional] see scipy.interpolate.RBFInterpolator documentation. Default is None
-    degree:    [optional] see scipy.interpolate.RBFInterpolator documentation. Default is None
-    '''
     # Loop over elements
     self.interpolator = {}
     for e_k in ("interior", "interface"):

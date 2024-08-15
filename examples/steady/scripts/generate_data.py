@@ -35,16 +35,18 @@ import dill as pickle
 
 from dd_nm_rom import utils
 from dd_nm_rom import fom as fom_mod
-from dd_nm_rom import fields as fields_mod
+from dd_nm_rom import field as field_mod
+from dd_nm_rom.elements import mesh as mesh_mod
 
 # Initialization
 # =====================================
 print("\nInitialization ...")
 # Mesh
-mesh = fom_mod.get_mesh(inputs["mesh"])
+mesh = utils.get_class(modules=[mesh_mod], **inputs["mesh"])
+mesh.build()
 # Field
 field = utils.get_class(
-  modules=[fields_mod],
+  modules=[field_mod],
   name=inputs["field"]["name"]
 )(mesh=mesh, **inputs["field"]["kwargs"])
 # FOM
@@ -69,14 +71,14 @@ def compute_sol(index):
   # Build FOM
   fom.build(field)
   # Solve PDE
-  uv, rhs, converged = fom.solve(**inputs["solver"])
+  uv, res, converged = fom.solve(**inputs["solver"])
   # Save solution
   if converged:
     case_i = {
       "index": index,
       "mu": mu_i,
       "snapshots": np.concatenate([uv["u"], uv["v"]]),
-      "residuals": rhs,
+      "residuals": res,
       "runtime": fom.runtime
     }
     utils.save_case(path=path_to_save, index=index, data=case_i)

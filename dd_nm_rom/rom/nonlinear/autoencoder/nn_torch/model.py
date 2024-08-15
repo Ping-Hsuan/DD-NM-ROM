@@ -44,7 +44,8 @@ class Model(object):
     self,
     optimizer="adam",
     lr=1e-3,
-    decay=None,
+    lr_decay=None,
+    weight_decay=0.0,
     loss="mse",
     monitor="loss",
     reduction="sum",
@@ -62,7 +63,11 @@ class Model(object):
       raise ValueError(f"Monitor metrics not valid. Please choose: {options}")
     # Initializing the optimizer
     self.optimizer, self.lr_scheduler = optim.optimizers.get(
-      self.net.parameters(), optimizer, lr=lr, decay=decay
+      self.net.parameters(),
+      optimizer,
+      lr=lr,
+      lr_decay=lr_decay,
+      weight_decay=weight_decay
     )
     # Callbacks
     self.callbacks = optim.callbacks.get_callbacks(callbacks)

@@ -38,17 +38,20 @@ from dd_nm_rom import utils
 from dd_nm_rom import postproc
 from dd_nm_rom import fom as fom_mod
 from dd_nm_rom import rom as rom_mod
-from dd_nm_rom import fields as fields_mod
+from dd_nm_rom import field as field_mod
+from dd_nm_rom.rom.utils import pod as pod_mod
+from dd_nm_rom.elements import mesh as mesh_mod
 
 # Initialization
 # =====================================
 print("\nInitialization ...")
 # Mesh
-mesh = fom_mod.get_mesh(inputs["mesh"])
+mesh = utils.get_class(modules=[mesh_mod], **inputs["mesh"])
+mesh.build()
 X, Y = mesh.grid
 # Field
 field = utils.get_class(
-  modules=[fields_mod],
+  modules=[field_mod],
   name=inputs["field"]["name"]
 )(mesh=mesh, **inputs["field"]["kwargs"])
 field.set_params(mu=field.sample_design_space())
@@ -72,9 +75,8 @@ test_cases = utils.load_case_parallel(**inputs["data_load"])
 test_cases = [case for case in test_cases if case is not None]
 
 print("\nLoading POD data ...")
-filename = inputs["paths"]["pod_dir"] + "/merged/bases.p"
-pod_bases = pickle.load(open(filename, "rb"))
-res_bases = pod_bases["res"] * mesh.n_sub
+filename = inputs["paths"]["pod_dir"] + "/merged/svd.p"
+svd = pickle.load(open(filename, "rb"))["res"][0]
 
 # NN models loading
 # =====================================
@@ -112,8 +114,8 @@ for icase in tqdm(test_cases, desc="> Test cases", ncols=80, file=sys.stdout):
   uv_fom = icase["solution"]
   runtime_fom = icase["runtime"]
   # > Time instants plotted
-  teval = icase["time"].squeeze()[::10]
-  ieval = np.arange(len(icase["time"]))[::10]
+  teval = icase["time"].squeeze()[::25]
+  ieval = np.arange(len(icase["time"]))[::25]
   np.savetxt(path_i+"/teval.txt", teval)
   # DD-FOM
   # ---------------
@@ -134,25 +136,27 @@ for icase in tqdm(test_cases, desc="> Test cases", ncols=80, file=sys.stdout):
       mesh=mesh,
       uv_fom=uv_fom,
       uv_rom=None,
-      index=i
+      index=i,
+      show_labels=False
     )
   postproc.animate_fom_rom(path_ij, mesh, uv_fom)
   # DD-NM-ROM
   # ---------------
-  # for hr_active in (False, True):
-  for hr_active in (False,):
+  for (r, e_min) in enumerate((None, 1e-6, 1e-7, 1e-8)):
+    rom_id = "srpc_" + str(r+1).zfill(2)
     # > Configuration
-    rom_cfg = "srpc"
-    if hr_active:
-      rom_cfg += "_hr"
+    hr_active = False if (e_min is None) else True
+    e_min = 1e-6 if (e_min is None) else e_min
+    res_bases = pod_mod.get_pod_bases(svd=svd, energy_min=e_min)
+    hr_n_samples = int(2*res_bases.shape[1])
     # > Building
     dd_rom = rom_mod.DD_NM_ROM(
       dd_fom=dd_fom,
       nn_configfiles=nn_configfiles,
       res_bases=res_bases,
       hr_active=hr_active,
-      hr_n_samples=int(2*res_bases[0].shape[1]),
-      hr_n_edge_samples_ratio=0.75,
+      hr_n_samples=hr_n_samples,
+      hr_n_edge_samples_ratio=2.0/3.0,
       hr_sample_small_ports=True,
       hr_small_ports_dim=5,
       constraint_type="strong",
@@ -162,7 +166,7 @@ for icase in tqdm(test_cases, desc="> Test cases", ncols=80, file=sys.stdout):
     # > Static solution
     if (not hr_active):
       # >> Saving path
-      path_ij = path_i + f"/rom/{rom_cfg}_rec/"
+      path_ij = path_i + "/rom/srpc_rec/"
       os.makedirs(path_ij, exist_ok=True)
       # >> ROM solution
       x_fom = np.vstack([uv_fom["res"]["u"], uv_fom["res"]["v"]])
@@ -174,13 +178,29 @@ for icase in tqdm(test_cases, desc="> Test cases", ncols=80, file=sys.stdout):
           mesh=mesh,
           uv_fom=uv_fom,
           uv_rom=uv_rom_rec,
-          index=i
+          index=i,
+          show_labels=False
         )
       postproc.animate_fom_rom(path_ij, mesh, uv_fom, uv_rom_rec)
     # > Dynamic solution
     # >> Saving path
-    path_ij = path_i + f"/rom/{rom_cfg}/"
+    path_ij = path_i + f"/rom/{rom_id}/"
     os.makedirs(path_ij, exist_ok=True)
+    # >> Configuration
+    cfg = {
+      "hr_active": hr_active,
+      "hr_n_samples": hr_n_samples,
+      "energy_min": e_min
+    }
+    with open(path_ij + "/cfg.json", "w") as file:
+      json.dump(cfg, file, indent=2)
+    # >> HR nodes
+    if hr_active:
+      postproc.plot_hr_nodes(
+        mesh=mesh,
+        dd_rom=dd_rom,
+        path=path_ij
+      )
     # >> Solving
     solver["verbose"] = False
     uv_rom, *_, iconverged = dd_rom.solve(
@@ -189,9 +209,9 @@ for icase in tqdm(test_cases, desc="> Test cases", ncols=80, file=sys.stdout):
       use_guess=False,
       **solver
     )
-    if (rom_cfg not in converged):
-      converged[rom_cfg] = np.array([])
-    converged[rom_cfg].append(int(iconverged))
+    if (rom_id not in converged):
+      converged[rom_id] = np.array([])
+    converged[rom_id] = np.append(converged[rom_id], int(iconverged))
     if (not iconverged):
       with open(path_ij+"/error.txt", "w") as file:
         file.write("Solver not converged.")
@@ -206,14 +226,14 @@ for icase in tqdm(test_cases, desc="> Test cases", ncols=80, file=sys.stdout):
     with open(path_ij + "/stats.json", "w") as file:
       json.dump(stats, file, indent=2)
     # >> Statistics - Global
-    if (rom_cfg not in error):
-      error[rom_cfg] = ierror
-      speedup[rom_cfg] = ispeedup
-      runtime[rom_cfg] = iruntime
+    if (rom_id not in error):
+      error[rom_id] = ierror
+      speedup[rom_id] = ispeedup
+      runtime[rom_id] = iruntime
     else:
-      error[rom_cfg] = np.append(error[rom_cfg], ierror)
-      speedup[rom_cfg] = update_stats(speedup[rom_cfg], ispeedup)
-      runtime[rom_cfg] = update_stats(runtime[rom_cfg], iruntime)
+      error[rom_id] = np.append(error[rom_id], ierror)
+      speedup[rom_id] = update_stats(speedup[rom_id], ispeedup)
+      runtime[rom_id] = update_stats(runtime[rom_id], iruntime)
     # >> Postprocessing
     for i in ieval:
       postproc.plot_field_fom_rom(
@@ -221,7 +241,8 @@ for icase in tqdm(test_cases, desc="> Test cases", ncols=80, file=sys.stdout):
         mesh=mesh,
         uv_fom=uv_fom,
         uv_rom=uv_rom,
-        index=i
+        index=i,
+        show_labels=False
       )
     postproc.animate_fom_rom(path_ij, mesh, uv_fom, uv_rom)
 

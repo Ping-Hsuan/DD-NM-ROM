@@ -14,6 +14,6 @@
 ### ---------------
 ### Loading conda env thanks to interactive shell
 ### > See: 'dd-nm-rom/conda/README.md' file
-load_conda_env
+load_conda_env_coral
 ### Launch program
 python -u ./../scripts/generate_data.py --inpfile ./../inputs/generate_data.json

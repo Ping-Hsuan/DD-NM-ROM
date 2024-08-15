@@ -8,7 +8,8 @@ def get(
   params,
   optimizer,
   lr=None,
-  decay=None
+  lr_decay=None,
+  weight_decay=0.0
 ):
   if (isinstance(optimizer, str) and (optimizer.lower() in _OPTIM_IDS)):
     if (lr is None):
@@ -19,12 +20,12 @@ def get(
       "sgd":     torch.optim.SGD,
       "rmsprop": torch.optim.RMSprop,
       "adam":    torch.optim.Adam
-    }[optimizer.lower()](params, lr=lr)
+    }[optimizer.lower()](params, lr=lr, weight_decay=weight_decay)
   else:
     raise ValueError(
       f"Could not interpret optimizer identifier: '{optimizer}'"
     )
-  lr_scheduler = _get_lr_scheduler(optim, decay)
+  lr_scheduler = _get_lr_scheduler(optim, lr_decay)
   return optim, lr_scheduler
 
 def _get_lr_scheduler(

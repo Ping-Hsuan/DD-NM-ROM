@@ -10,13 +10,14 @@
     "seed": 0
   },
   "mesh": {
-    "mono": {
-      "nx": 480,
-      "ny": 24,
-      "x_lim": [-1.0, 1.0],
-      "y_lim": [0.0, 0.05]
-    },
-    "dd": {
+    "name": "MeshDD",
+    "kwargs": {
+      "nx_intr": 239,
+      "ny_intr": 11,
+      "lx_sub": 1.0,
+      "ly_sub": 0.025,
+      "x0": -1.0,
+      "y0": 0.0,
       "n_sub_x": 2,
       "n_sub_y": 2
     }
@@ -53,7 +54,7 @@
     "verbose": true
   },
   "data_load": {
-    "n_workers": 32,
+    "n_workers": 20,
     "ranges": [0,400],
     "key": "residuals",
     "path": "/g/g92/zanardi1/Workspace/Codes/DD-NM-ROM/run/steady/dset.02/datagen/"

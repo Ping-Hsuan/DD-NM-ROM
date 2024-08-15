@@ -35,16 +35,18 @@ import dill as pickle
 from dd_nm_rom import ops
 from dd_nm_rom import utils
 from dd_nm_rom import fom as fom_mod
-from dd_nm_rom import fields as fields_mod
+from dd_nm_rom import field as field_mod
+from dd_nm_rom.elements import mesh as mesh_mod
 
 # Initialization
 # =====================================
 print("\nInitialization ...")
 # Mesh
-mesh = fom_mod.get_mesh(inputs["mesh"])
+mesh = utils.get_class(modules=[mesh_mod], **inputs["mesh"])
+mesh.build()
 # Field
 field = utils.get_class(
-  modules=[fields_mod],
+  modules=[field_mod],
   name=inputs["field"]["name"]
 )(mesh=mesh, **inputs["field"]["kwargs"])
 # FOM

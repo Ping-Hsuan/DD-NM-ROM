@@ -2,23 +2,27 @@ import os
 import numpy as np
 
 from matplotlib import pyplot as plt
+from typing import List, Union, Tuple
+from dd_nm_rom.fom import domain_dec as dd_mod
+from dd_nm_rom.elements import mesh as mesh_mod
 
 from .utils import set_style
 plt = set_style(plt)
 
 
 def plot_field(
-  x,
-  y,
-  z,
-  label,
-  lim=None,
-  figsize=None,
-  cmap="viridis",
-  filename="./state.png",
-  save=True,
-  show=False
-):
+  x: np.ndarray,
+  y: np.ndarray,
+  z: np.ndarray,
+  label: str,
+  show_labels: bool = True,
+  lim: Union[List[float], None] = None,
+  figsize: Union[Tuple[int], None] = None,
+  cmap: str = "viridis",
+  filename: str = "./state.png",
+  save: bool = True,
+  show: bool = False
+) -> None:
   if (figsize is not None):
     plt.figure(figsize=figsize)
   else:
@@ -31,10 +35,12 @@ def plot_field(
     style["vmin"] = lim[0]
     style["vmax"] = lim[1]
   plt.pcolormesh(x, y, z, **style)
-  plt.xlabel("$x$")
-  plt.ylabel("$y$")
+  if show_labels:
+    plt.xlabel("$x$", labelpad=4)
+    plt.ylabel("$y$", labelpad=12)
+  label = label if show_labels else None
   cbar = plt.colorbar(orientation="vertical", label=label)
-  cbar.formatter.set_powerlimits((0, 0))
+  # cbar.formatter.set_powerlimits((0, 0))
   if save:
     plt.savefig(filename, bbox_inches="tight", pad_inches=0.1)
   if show:
@@ -42,14 +48,14 @@ def plot_field(
   plt.close()
 
 def plot_field_fom_rom(
-  path,
-  mesh,
-  uv_fom,
-  uv_rom=None,
-  index=None,
-  figsize=None,
-  use_label=True
-):
+  path: str,
+  mesh: mesh_mod.MESH_TYPES,
+  uv_fom: dd_mod.dtypes.UV_TYPE,
+  uv_rom: Union[dd_mod.dtypes.UV_TYPE, None] = None,
+  index: Union[int, None] = None,
+  figsize: Union[Tuple[int], None] = None,
+  show_labels: bool = True
+) -> None:
   for x_k in ("u", "v"):
     path_k = path + f"/{x_k}/"
     os.makedirs(path_k, exist_ok=True)
@@ -75,7 +81,8 @@ def plot_field_fom_rom(
       z=z.reshape(mesh.n["y"], mesh.n["x"]),
       lim=lim,
       figsize=figsize,
-      label=label if use_label else None,
+      label=label,
+      show_labels=show_labels,
       filename=filename,
       save=True,
       show=False
@@ -93,7 +100,8 @@ def plot_field_fom_rom(
         z=err.reshape(mesh.n["y"], mesh.n["x"]),
         lim=err_lim,
         figsize=figsize,
-        label=label if use_label else None,
+        label=label,
+        show_labels=show_labels,
         filename=filename,
         save=True,
         show=False

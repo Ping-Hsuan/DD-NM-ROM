@@ -13,16 +13,6 @@ def generate_mask(
 ):
   """
   Generates a sparsity mask for decoder.
-
-  inputs:
-  output_dim: dimension of the decoder output
-  row_nonzero:    number of nonzero elements per row of mask
-  row_shift:  amount to shift nonzero band per row
-  print_sparsity: [optional] Boolean to print percent sparsity of mask and produces spy plot. Default is False
-
-  outputs:
-  mask: (output_dim, latent_dim) sparse matrix of sparsity mask
-  hidden_dim: dimension of hidden layer. Depends on row_nonzero and shift
   """
   # Compute hidden layer dimension
   hidden_dim = int(row_nonzero + row_shift*(output_dim-1))
