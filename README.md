@@ -49,7 +49,8 @@ Explore the DD-NM-ROM approach for steady and unsteady problems for the Burgers'
   year = {2024},
   month = {April},
   school = {Rice University},
-  type = {PhD thesis}
+  type = {PhD thesis},
+  url = {https://hdl.handle.net/1911/116152}
 }
 ```
 
