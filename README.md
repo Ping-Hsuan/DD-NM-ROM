@@ -22,7 +22,7 @@ programming (SQP) solver to evaluate the coupled global NM-ROM. The proposed
 DD-NM-ROM approach is numerically tested for the Burgers' equation.
 
 
-## Intallation
+## Installation
 Follow the instructions in `conda/README.md`.
 
 
