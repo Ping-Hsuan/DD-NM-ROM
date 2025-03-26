@@ -41,7 +41,7 @@ def map_nested_dict(
   :return: A new nested structure with the function applied to all values.
   :rtype: Any
   """
-  if isinstance(obj, collections.Mapping):
+  if isinstance(obj, collections.abc.Mapping):
     return {k: map_nested_dict(v, fun) for (k, v) in obj.items()}
   else:
     if isinstance(obj, (list, tuple)):
