@@ -37,6 +37,23 @@
       "nu": 1e-3
     }
   },
+  "svd": {
+    "nb_samples": -1,
+    "energy_min": {
+      "res": 1e-3,
+      "interior": 1e-3,
+      "interface": 1e-3,
+      "port": 1e-3
+    },
+    "n_bases": {
+      "res": -1,
+      "interior": -1,
+      "interface": -1,
+      "port": -1
+    },
+    "get_bases": true,
+    "verbose": true
+  },
   "trainable": {
     "elements": ["port"],
     "ports": null,
@@ -49,60 +66,7 @@
     "key": "snapshots",
     "path": "/home/pinghsuan/Research/DD-NM-ROM_old/run/unsteady/dset.2by2/datagen/train/"
   },
-  "data": {
-    "validation_split": 0.2,
-    "batch_size": 1024
-  },
-  "autoencoder": {
-    "dim": {
-      "port": {
-        "latent_dim": 6,
-        "row_shift": 3,
-        "row_nonzero": 3
-      }
-    },
-    "common": {
-      "min_input_dim": 5,
-      "encoder_dense": false,
-      "encoder_hidden": -1,
-      "activation": "swish",
-      "add_noise": true,
-      "loading": false,
-      "saved_model": ""
-    }
-  },
   "model": {
-    "path": "/home/pinghsuan/Research/DD-NM-ROM_old/run/unsteady/dset.2by2/lsrom/run.01/",
-    "compile": {
-      "optimizer": "adam",
-      "lr": 1e-3,
-      "lr_decay": {
-        "name": "reduce_on_plateau",
-        "factor": 0.8,
-        "patience": 50,
-        "min_lr": 1e-6
-      },
-      "weight_decay": 0.0,
-      "loss": "mse",
-      "monitor": "val_loss",
-      "reduction": "mean",
-      "callbacks": {
-        "early_stopping": {
-          "monitor": "val_loss",
-          "min_delta": 1e-8,
-          "patience": 500
-        },
-        "checkpoint": {
-          "monitor": "val_loss",
-          "save_best_only": true
-        },
-        "lr_tracker": {
-          "verbose": true
-        }
-      }
-    },
-    "train": {
-      "saving": true
-    }
+    "path": "/home/pinghsuan/Research/DD-NM-ROM_old/run/unsteady/dset.2by2/lsrom/run.01/"
   }
 }
