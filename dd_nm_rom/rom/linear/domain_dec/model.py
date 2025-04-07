@@ -85,7 +85,7 @@ class DD_LS_ROM(object):
     self.subdomains = []
     for (s, sub) in enumerate(self.dd_fom.subdomains):
       inputs_s = {}
-      for input_k in ("cmat", "rom_dim", "nn_models"):
+      for input_k in ("cmat", "rom_dim", "ls_models"):
         attr_k = getattr(self, input_k)
         inputs_s[input_k] = {
           e_k: attr_k[e_k][s] for e_k in ("interior", "interface")
@@ -225,7 +225,7 @@ class DD_LS_ROM(object):
       print(model.latent_dim)
       print(model.input_dim)
       print(model.decoder._w['W1'].shape)
-      print(model.encoder._w['W1_scale'].shape)
+      print(model.encoder._w['W1'].shape)
     self.ls_models["interface"] = models
 
   # Constraint matrices
@@ -533,7 +533,7 @@ def create_dict(configs):
          'latent_dim': cfg_ij[key_i][0]['u'].shape[1]
          },
          'decoder':
-        {'weights': {'W2': cfg_ij[key_i][0]['u']},
+        {'weights': {'W1': cfg_ij[key_i][0]['u']},
          'input_dim': cfg_ij[key_i][0]['u'].shape[0],
          'latent_dim': cfg_ij[key_i][0]['u'].shape[1]
          }

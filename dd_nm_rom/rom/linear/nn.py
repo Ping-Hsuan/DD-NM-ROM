@@ -51,18 +51,17 @@ class Encoder(Block):
 
   def set_weights(self):
     super(Encoder, self).set_weights()
-    self._w['W1_scale'] = self._w['W1']
 
   def fun(self, x):
     # Apply encoder
-    z = self.w['W1_scale'] @ x
+    z = self.w['W1'] @ x
     z = self.activation(z, with_jac=False)
     return z
 
   def fun_jac(self, x):
     # Apply encoder
-    z = self.w['W1_scale'] @ x
-    jac = self.w['W1_scale']
+    z = self.w['W1'] @ x
+    jac = self.w['W1']
     # Return output and Jacobian
     return z, jac
 
@@ -81,7 +80,6 @@ class Decoder(Block):
 
   def set_weights(self):
     super(Decoder, self).set_weights()
-    self._w["scale_W2"] = self._w["W2"]
 
   def set_hr_mode(
     self,
@@ -137,13 +135,13 @@ class Decoder(Block):
 
   def fun(self, z):
     # Apply decoder
-    x = self.w['scale_W2'] @ z
+    x = self.w['W1'] @ z
     return x
 
   def fun_jac(self, z):
     # Apply decoder
-    x = self.w['scale_W2'] @ z 
-    jac = self.w['sclae_W2']
+    x = self.w['W1'] @ z 
+    jac = self.w['W1']
     # Return output and Jacobian
     return x, jac
 
@@ -213,8 +211,8 @@ class MultiAutoencoder(Autoencoder):
         cfg["weights"]["W1"] = sp.vstack(cfg["weights"]["W1"])
         print('encoder', cfg["weights"]["W1"].shape)
       elif l == "decoder":
-        cfg["weights"]["W2"] = sp.hstack(cfg["weights"]["W2"])
-        print('decoder', cfg["weights"]["W2"].shape)
+        cfg["weights"]["W1"] = sp.hstack(cfg["weights"]["W1"])
+        print('decoder', cfg["weights"]["W1"].shape)
       # Store configuration
       config[l] = cfg
     return config
@@ -242,7 +240,7 @@ class MultiAutoencoder(Autoencoder):
       "scale": np.ones(self.input_dim),
       "mask_shape": None,
       "mask_indices": None,
-      "weights": {"W1": [], "W2": []}
+      "weights": {"W1": []}
     }
 
   def _update_config(
@@ -253,20 +251,15 @@ class MultiAutoencoder(Autoencoder):
   ):
     # Set dimensions
     dims = {k: config[k+"_dim"] for k in ("input", "latent")}
-    print(dims)
     # Get weights
     if (layer.name == "encoder"):
       get_weights = self._get_weights_single_encoder
-      weights = get_weights(dims, layer, indices)
-      # Store weights
-      for w in ("W1", ):
-        config["weights"][w].append(weights[w])
     else:
       get_weights = self._get_weights_single_decoder
-      weights = get_weights(dims, layer, indices)
-      # Store weights
-      for w in ("W2", ):
-        config["weights"][w].append(weights[w])
+    weights = get_weights(dims, layer, indices)
+    # Store weights
+    for w in ("W1", ):
+      config["weights"][w].append(weights[w])
     return config
 
   def _get_weights_single_encoder(
@@ -278,9 +271,9 @@ class MultiAutoencoder(Autoencoder):
     # Input layer
     W1 = np.zeros((dims["latent"], dims["input"]))
     mesh_indices = np.ix_(indices["rom"], indices["fom"])
-    W1[mesh_indices] += layer._w["W1_scale"]
+    W1[mesh_indices] += layer._w["W1"]
     W1 = sp.csr_matrix(W1)
-    return {"W1": W1, "W2": []}
+    return {"W1": W1}
 
   def _get_weights_single_decoder(
     self,
@@ -291,7 +284,7 @@ class MultiAutoencoder(Autoencoder):
     # Input layer
     W1 = np.zeros((dims["input"], dims["latent"]))
     mesh_indices = np.ix_(indices["fom"], indices["rom"])
-    W1[mesh_indices] += layer._w["scale_W2"]
+    W1[mesh_indices] += layer._w["W1"]
     W1 = sp.csr_matrix(W1)
     # Return weights
-    return {"W1": [], "W2": W1}
+    return {"W1": W1}
