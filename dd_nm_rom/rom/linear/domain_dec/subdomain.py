@@ -18,7 +18,7 @@ class SubdomainROM(object):
     self,
     rom_dim,
     sub_fom,
-    nn_models,
+    ls_models,
     scaling=1.0,
     cmat=None,
     constraint_type="strong",
@@ -58,7 +58,7 @@ class SubdomainROM(object):
     # -------------
     self.elem_states = {e_k: SubdomainElementStateROM(
       state_fom=self.sub_fom.elem_states[e_k],
-      nn_model=nn_models[e_k] if (e_k != "res") else None
+      nn_model=ls_models[e_k] if (e_k != "res") else None
     ) for e_k in ("res", "interior", "interface")}
     # Set HR mode
     # -------------

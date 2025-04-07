@@ -135,6 +135,8 @@ class Decoder(Block):
 
   def fun(self, z):
     # Apply decoder
+    print('input', z.shape)
+    print('decoder', self.w['W1'].shape)
     x = self.w['W1'] @ z
     return x
 
@@ -208,10 +210,22 @@ class MultiAutoencoder(Autoencoder):
         )
       # Assemble weights
       if l == "encoder":
-        cfg["weights"]["W1"] = sp.vstack(cfg["weights"]["W1"])
+        if cfg["weights"]["W1"]:  # Check if list is not empty
+          combined_matrix = cfg["weights"]["W1"][0]
+          for matrix in cfg["weights"]["W1"][1:]:
+            combined_matrix = combined_matrix + matrix
+          cfg["weights"]["W1"] = combined_matrix
+#       print('encoder', cfg["weights"]["W1"].shape)
+#       cfg["weights"]["W1"] = sp.vstack(cfg["weights"]["W1"])
         print('encoder', cfg["weights"]["W1"].shape)
       elif l == "decoder":
-        cfg["weights"]["W1"] = sp.hstack(cfg["weights"]["W1"])
+        if cfg["weights"]["W1"]:  # Check if list is not empty
+          combined_matrix = cfg["weights"]["W1"][0]
+          for matrix in cfg["weights"]["W1"][1:]:
+            combined_matrix = combined_matrix + matrix
+          cfg["weights"]["W1"] = combined_matrix
+#       cfg["weights"]["W1"] = sp.hstack(cfg["weights"]["W1"])
+#       cfg["weights"]["W1"] = sp.vstack(cfg["weights"]["W1"])
         print('decoder', cfg["weights"]["W1"].shape)
       # Store configuration
       config[l] = cfg

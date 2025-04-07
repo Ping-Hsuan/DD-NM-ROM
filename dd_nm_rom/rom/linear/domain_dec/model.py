@@ -70,7 +70,6 @@ class DD_LS_ROM(object):
     if (self.constraint_type == "strong"):
       self.set_port_indices()
       self.init_ls_model_intf()
-    1/o
     self.assemble_cmat()
     # HR
     # -------------
@@ -222,8 +221,8 @@ class DD_LS_ROM(object):
         )
       )
     for model in models:
-      print(model.latent_dim)
-      print(model.input_dim)
+      print('laten_dim', model.latent_dim)
+      print('input_dim', model.input_dim)
       print(model.decoder._w['W1'].shape)
       print(model.encoder._w['W1'].shape)
     self.ls_models["interface"] = models
@@ -360,6 +359,7 @@ class DD_LS_ROM(object):
     x
   ):
     is_2d = (x.ndim == 2)
+    print('is_2d', is_2d)
     if (is_2d and (x.shape[0] == 2*self.mesh.nxy)):
       x = x.T
     if is_2d:
@@ -381,6 +381,7 @@ class DD_LS_ROM(object):
         zi = sub.elem_states[e_k].encode(xi, with_jac=False)
         z.append(zi)
     z.append(np.zeros(self.n_constraints))
+#   tmp = np.concatenate(z)
     return np.concatenate(z)
 
   def decode(
@@ -408,16 +409,22 @@ class DD_LS_ROM(object):
         z[e_k].append(xi)
         # Reconstruct/store physical space
         if is_2d:
+#         for xj in xi.T:
+#           print(xj.shape)
+#           state_k.decode(xj, with_jac=False)
+#           1/o
           uv_i = [state_k.decode(xj, with_jac=False) for xj in xi.T]
           uv_i = np.vstack(uv_i).T
         else:
           uv_i = state_k.decode(xi, with_jac=False)
+        print(uv, uv_i.shape)
         uv = self.dd_fom.extract_uv_sub_from_vec(
           uv=uv,
           uv_i=uv_i,
           elem_state=sub.sub_fom.elem_states[e_k],
           map_on_res=map_on_res
         )
+        print(uv, uv_i.shape)
     lambdas = x[-self.n_constraints:]
     return uv, z, lambdas
 
@@ -425,7 +432,10 @@ class DD_LS_ROM(object):
     self,
     x
   ):
-    return self.decode(self.encode(x), map_on_res=True)[0]
+    tmp = self.encode(x)
+    print('encode shape', tmp.shape)
+    tt = self.decode(tmp, map_on_res=True)[0]
+    return tt #self.decode(self.encode(x), map_on_res=True)[0]
 
   # Solution
   # ===================================
