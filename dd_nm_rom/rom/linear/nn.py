@@ -52,8 +52,6 @@ class Encoder(Block):
   def set_weights(self):
     super(Encoder, self).set_weights()
     self._w['W1_scale'] = self._w['W1']
-#   self._w["W1_scale"] = self._w["W1"] @ self._w["ov_scale_diag"]
-#   self._w["b1_ref"] = self._w["b1"] - self._w["W1_scale"] @ self._w["ref"]
 
   def fun(self, x):
     # Apply encoder
@@ -64,8 +62,6 @@ class Encoder(Block):
   def fun_jac(self, x):
     # Apply encoder
     z = self.w['W1_scale'] @ x
-#   z, dz = self.activation(z, with_jac=True)
-#   jac = dz @ self.w['W1_scale']
     jac = self.w['W1_scale']
     # Return output and Jacobian
     return z, jac
@@ -85,8 +81,6 @@ class Decoder(Block):
 
   def set_weights(self):
     super(Decoder, self).set_weights()
-#   self._w = self._w['W1']
-#   self._w["scale_W2"] = self._w["scale_diag"] @ self._w["W2"]
     self._w["scale_W2"] = self._w["W2"]
 
   def set_hr_mode(
@@ -101,7 +95,7 @@ class Decoder(Block):
       self.w = self._w_hr
       self.activation = self._activation_hr
     else:
-#     self.w = self._w
+      self.w = self._w
       self.activation = self._activation
 
   def set_weights_act_hr(
@@ -144,14 +138,10 @@ class Decoder(Block):
   def fun(self, z):
     # Apply decoder
     x = self.w['scale_W2'] @ z
-#   x = self.activation(x, with_jac=False)
     return x
 
   def fun_jac(self, z):
     # Apply decoder
-#   x = self.w['W1'] @ z 
-#   x, dx = self.activation(x, with_jac=True)
-#   jac = dx @ self.w['W1']
     x = self.w['scale_W2'] @ z 
     jac = self.w['sclae_W2']
     # Return output and Jacobian
@@ -169,8 +159,6 @@ class Autoencoder(object):
     for k in ("input_dim", "latent_dim"):
       setattr(self, k, self.config["decoder"][k])
     self.activation = 'linear'
-#   self.input_dim = self.config["u"].shape[0] 
-#   self.latent_dim = self.config["u"].shape[1] 
 
     # Layers
     self.decoder = Decoder(self.config["decoder"])
@@ -229,22 +217,6 @@ class MultiAutoencoder(Autoencoder):
         print('decoder', cfg["weights"]["W2"].shape)
       # Store configuration
       config[l] = cfg
-#   l = "encoder"
-#   cfg = copy.deepcopy(config_init)
-#   # Update configuration by looping over ports
-#   for (k, autoencoder) in self.autoencoders.items():
-#     layer = getattr(autoencoder, l)
-#     cfg = self._update_config(
-#       config=cfg,
-#       layer=layer,
-#       indices=self.indices[k]
-#     )
-#   # Assemble weights
-#   cfg["u"] = sp.vstack(cfg["u"])
-#   print(cfg["u"].shape)
-#   1/o
-#   # Store configuration
-#   config = cfg
     return config
 
   def _init_config(self):
@@ -295,7 +267,6 @@ class MultiAutoencoder(Autoencoder):
       # Store weights
       for w in ("W2", ):
         config["weights"][w].append(weights[w])
-#   config["u"].append(weights)
     return config
 
   def _get_weights_single_encoder(
