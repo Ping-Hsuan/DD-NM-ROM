@@ -56,7 +56,8 @@ class DD_LS_ROM(object):
     # Load NN for interior and port -> Load Basis in LS-ROM case
     self.ls_models = self.init_ls_models(self.ls_configs)
     print("Keys of self.ls_models:", self.ls_models.keys())
-    print("items of self.ls_models:", self.ls_models['interior'])
+    print("len of self.ls_models:", len(self.ls_models['interior']))
+    print("len of self.ls_models:", len(self.ls_models['port']))
     # DD-ROM Constraints
     # -------------
     self.constraint_type = constraint_type
@@ -538,14 +539,14 @@ def create_dict(configs):
     for cfg_ij in cfg_i:
       print(cfg_ij)
       tmp = {'encoder': 
-        {'weights': {'W1': cfg_ij[key_i][0]['u'].T},
-         'input_dim': cfg_ij[key_i][0]['u'].shape[0],
-         'latent_dim': cfg_ij[key_i][0]['u'].shape[1]
+        {'weights': {'W1': cfg_ij[key_i][0].T},
+         'input_dim': cfg_ij[key_i][0].shape[0],
+         'latent_dim': cfg_ij[key_i][0].shape[1]
          },
          'decoder':
-        {'weights': {'W1': cfg_ij[key_i][0]['u']},
-         'input_dim': cfg_ij[key_i][0]['u'].shape[0],
-         'latent_dim': cfg_ij[key_i][0]['u'].shape[1]
+        {'weights': {'W1': cfg_ij[key_i][0]},
+         'input_dim': cfg_ij[key_i][0].shape[0],
+         'latent_dim': cfg_ij[key_i][0].shape[1]
          }
         }
       cfg[key_i].append(tmp)

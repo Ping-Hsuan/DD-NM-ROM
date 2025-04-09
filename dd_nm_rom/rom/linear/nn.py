@@ -135,8 +135,6 @@ class Decoder(Block):
 
   def fun(self, z):
     # Apply decoder
-    print('input', z.shape)
-    print('decoder', self.w['W1'].shape)
     x = self.w['W1'] @ z
     return x
 

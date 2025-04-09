@@ -21,9 +21,9 @@ def load_ls_configfiles(mesh, dd_fom, path_to_nets) -> dict:
               if (not os.path.exists(filename)):
                 filename = file.path + "/scratch/"
               if (size == 1):
-                filename += "/svd.p"
+                filename += "/bases.p"
               else:
-                filename += "/svd.p"
+                filename += "/bases.p"
               ls_configfiles[element].append(filename)
     else:
       # > Interior/Interface
@@ -33,7 +33,7 @@ def load_ls_configfiles(mesh, dd_fom, path_to_nets) -> dict:
             filename = file.path + "/refine/"
             if (not os.path.exists(filename)):
               filename = file.path + "/scratch/"
-            filename += "/svd.p"
+            filename += "/bases.p"
             ls_configfiles[element].append(filename)
   ops.map_nested_dict(ls_configfiles, utils.check_path)
   ls_configfiles = ops.map_nested_dict(ls_configfiles, os.path.abspath)
