@@ -1,6 +1,7 @@
 import numpy as np
 import scipy as sp
 import dill as pickle
+import dask.array as da
 
 from dd_nm_rom import backend as bkd
 from typing import Dict, List, Tuple, Union
@@ -156,5 +157,10 @@ def perform_svd(data: np.ndarray) -> Dict[str, np.ndarray]:
            singular values ('s').
   :rtype: Dict[str, np.ndarray]
   """
-  u, s, _ = sp.linalg.svd(data, full_matrices=False)
+# u, s, _ = sp.linalg.svd(data, full_matrices=False)
+  dask_data = da.from_array(data, chunks=(1000, 20200))
+  k = min(data.shape)
+  u, s, _ = da.linalg.svd_compressed(dask_data, k=k)
+  u = u.compute()
+  s = s.compute()
   return {"u": u, "s": s}
