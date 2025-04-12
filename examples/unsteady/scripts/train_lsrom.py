@@ -80,51 +80,54 @@ print((dataset['res'][0].shape))
 # Linear subspace
 # =====================================
 print("\nBuilding linear subspace...")
-ls_models = []
-path = inputs["model"]["path"]
-# Define subdomains used for training
-subs = inputs["trainable"]["subdomains"]
-if (subs is None):
-    subs = np.arange(mesh.n_sub).tolist()
-# Collect all ls models for interior/interface training
-if inputs["trainable"]["merged"]:
-    for e in inputs["trainable"]["elements"]:
-        ls_models.append((e,subs))
-    path += "/merged/"
-else:
-    for e in inputs["trainable"]["elements"]:
-        for s in subs:
-            ls_models.append((e,[s]))
-    path += "/multi/"
+for emin in [1e-1, 5e-2, 1e-2, 5e-3, 1e-3, 1e-4]:
+  ls_models = []
+  path = inputs["model"]["path"]
+  # Define subdomains used for training
+  subs = inputs["trainable"]["subdomains"]
+  if (subs is None):
+      subs = np.arange(mesh.n_sub).tolist()
+  # Collect all ls models for interior/interface training
+  if inputs["trainable"]["merged"]:
+      for e in inputs["trainable"]["elements"]:
+          ls_models.append((e,subs))
+          inputs["svd"]["energy_min"][e] = emin
+      path += "/merged/"
+  else:
+      for e in inputs["trainable"]["elements"]:
+          for s in subs:
+              ls_models.append((e,[s]))
+      path += "/multi/"
 
-for model in ls_models:
-    e, subs = model
-    print(f"\n> Training '{e}' element on subdomains {subs} ...")
-    dataset_merged = {}
-    dataset_merged[e] = [np.vstack(dataset[e])]
+  for model in ls_models:
+      e, subs = model
+      print(f"\n> Training '{e}' element on subdomains {subs} ...")
+      dataset_merged = {}
+      dataset_merged[e] = [np.vstack(dataset[e])]
 
-    path_i = path + f"/{e}/subs"
-    for s in subs:
-      path_i += f"_{s}"
+      path_i = path + f"/{e}_emin_{emin}/subs"
+      for s in subs:
+        path_i += f"_{s}"
+#     path_i +=f"_emin_{emin}" 
 
-    path_i = path_i + "/scratch/"
-    print(path_i)
+      path_i = path_i + "/scratch/"
+      print(path_i)
 
-    # Perform SVD
-    svd, bases = pod_mod.compute_svd(
-      data=dataset_merged,
-      **inputs["svd"]
-    )
-    # Saving
-    os.makedirs(path_i, exist_ok=True)
-    pickle.dump(svd, open(path_i+"/svd.p", "wb"))
-    if (bases is not None):
-      pickle.dump(bases, open(path_i+"/bases.p", "wb"))
-      n_bases = ops.map_nested_dict(bases, lambda x: x.shape[1])
-      with open(path_i+"/n_bases.json", 'w') as file:
-        json.dump(n_bases, file, indent=2)
+      # Perform SVD
+      svd, bases = pod_mod.compute_svd(
+        data=dataset_merged,
+        **inputs["svd"]
+      )
+      # Saving
+      os.makedirs(path_i, exist_ok=True)
+      pickle.dump(svd, open(path_i+"/svd.p", "wb"))
+      if (bases is not None):
+        pickle.dump(bases, open(path_i+"/bases.p", "wb"))
+        n_bases = ops.map_nested_dict(bases, lambda x: x.shape[1])
+        with open(path_i+"/n_bases.json", 'w') as file:
+          json.dump(n_bases, file, indent=2)
 
-    # Copy input file
-    shutil.copyfile(args.inpfile, path_i+"/inputs.json")
+      # Copy input file
+      shutil.copyfile(args.inpfile, path_i+"/inputs.json")
 
-print("\nDone!\n")
+  print("\nDone!\n")
