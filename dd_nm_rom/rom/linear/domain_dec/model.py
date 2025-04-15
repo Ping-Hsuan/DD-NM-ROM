@@ -46,18 +46,8 @@ class DD_LS_ROM(object):
     # -------------
     tmp_dict = ops.map_nested_dict(ls_configfiles, load_pickle_file)
     self.ls_configs = create_dict(tmp_dict)
-    print("Keys of self.ls_configs:", self.ls_configs.keys())
-    print("Keys and values in self.nn_configs['interior']:")
-    print(self.ls_configs['interior'])
-#   for value in self.ls_configs['interior']:
-#     print(f"Value: {value}")
-#   print(self.ls_configs['interior'][0]['interior'][0]['u'].shape)
-#   print(self.ls_configs['interior'][0]['interior'][0]['s'].shape)
     # Load NN for interior and port -> Load Basis in LS-ROM case
     self.ls_models = self.init_ls_models(self.ls_configs)
-    print("Keys of self.ls_models:", self.ls_models.keys())
-    print("len of self.ls_models:", len(self.ls_models['interior']))
-    print("len of self.ls_models:", len(self.ls_models['port']))
     # DD-ROM Constraints
     # -------------
     self.constraint_type = constraint_type
@@ -221,11 +211,6 @@ class DD_LS_ROM(object):
           autoencoders={p: self.ls_models["port"][p] for p in sub.ports}
         )
       )
-    for model in models:
-      print('laten_dim', model.latent_dim)
-      print('input_dim', model.input_dim)
-      print(model.decoder._w['W1'].shape)
-      print(model.encoder._w['W1'].shape)
     self.ls_models["interface"] = models
 
   # Constraint matrices
@@ -360,7 +345,6 @@ class DD_LS_ROM(object):
     x
   ):
     is_2d = (x.ndim == 2)
-    print('is_2d', is_2d)
     if (is_2d and (x.shape[0] == 2*self.mesh.nxy)):
       x = x.T
     if is_2d:
@@ -418,14 +402,12 @@ class DD_LS_ROM(object):
           uv_i = np.vstack(uv_i).T
         else:
           uv_i = state_k.decode(xi, with_jac=False)
-        print(uv, uv_i.shape)
         uv = self.dd_fom.extract_uv_sub_from_vec(
           uv=uv,
           uv_i=uv_i,
           elem_state=sub.sub_fom.elem_states[e_k],
           map_on_res=map_on_res
         )
-        print(uv, uv_i.shape)
     lambdas = x[-self.n_constraints:]
     return uv, z, lambdas
 
@@ -434,7 +416,6 @@ class DD_LS_ROM(object):
     x
   ):
     tmp = self.encode(x)
-    print('encode shape', tmp.shape)
     tt = self.decode(tmp, map_on_res=True)[0]
     return tt #self.decode(self.encode(x), map_on_res=True)[0]
 
@@ -529,7 +510,6 @@ def create_dict(configs):
   # Loop over elements: interior and interface/ports
   cfg = {}
   for (key_i, cfg_i) in configs.items():
-    print(key_i)
     if key_i not in cfg:
       cfg[key_i] = []
 
@@ -537,7 +517,6 @@ def create_dict(configs):
     if (not isinstance(cfg_i, (list, tuple))):
       cfg_i = [cfg_i]
     for cfg_ij in cfg_i:
-      print(cfg_ij)
       tmp = {'encoder': 
         {'weights': {'W1': cfg_ij[key_i][0].T},
          'input_dim': cfg_ij[key_i][0].shape[0],

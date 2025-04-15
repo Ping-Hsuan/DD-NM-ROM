@@ -69,7 +69,6 @@ class Model(object):
   ):
     print("Computing SVD ...")
 
-    print(self.data.train.shape)
     u_, s_, vh_i = la.svd(self.data.train.T, full_matrices=False, check_finite=False)
 
     # puts left singular vectors and singular values into dictionaries
@@ -77,7 +76,6 @@ class Model(object):
                 'sing_vals': s_}
 
     self.basis = self.compute_bases_from_svd(self.svd, ec=1e-2)
-    print(self.basis.shape)
 
     # Saving
     if saving:
