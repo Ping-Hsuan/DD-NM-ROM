@@ -27,11 +27,13 @@ class DiffOperators(object):
     nu: float,
     bc: bc_mod.BC_TYPES,
     mesh: mesh_mod.MESH_TYPES,
+    upwind: bool,
   ) -> None:
     self.nu = nu
     self.bc = bc
     self.mesh = mesh
     self.built = False
+    self.upwind = upwind
 
   # Building
   # ===================================
@@ -50,6 +52,10 @@ class DiffOperators(object):
     """
     Build the differential operators for the mesh and boundary conditions.
     """
+
+    if self.upwind:
+        return self.build_upwind_2nd()
+
     self.ops = {"D": 0.0}
     for axis in ("x", "y"):
       h = self.mesh.h[axis]
@@ -93,3 +99,67 @@ class DiffOperators(object):
     else:
       op = sp.kron(op, sp.eye(n["x"]))
     return op.tocsr()
+
+
+  def build_upwind_2nd(self) -> None:
+      """
+      Build differential operators using second-order upwind scheme,
+      assuming positive flow direction for both x and y.
+      """
+      self.ops = {"D": 0.0}
+      for axis in ("x", "y"):
+          h = self.mesh.h[axis]
+          # Second-order backward difference for first derivative (for positive flow)
+          # Formula: (3f_i - 4f_{i-1} + f_{i-2})/(2h)
+          upwind_stencil = [1, -4, 3, 0]  # Coefficients for points i-2, i-1, i, i+1
+          upwind_diags = [-2, -1, 0, 1]   # Diagonal positions
+          Ai = self._build_extended_op(axis, upwind_stencil, upwind_diags)
+          self.ops[f"A{axis}"] = (-1.0/(2*h)) * Ai
+          # Standard second-order central for diffusion
+          Di = self._build_op(axis, stencil=[1, -2, 1], diags=[-1, 0, 1])
+          self.ops["D"] = self.ops["D"] + (self.nu/h**2) * Di
+      self.built = True
+
+  def _build_extended_op(
+      self,
+      axis: str,
+      stencil: List[float],
+      diags: List[int]
+  ) -> sp.spmatrix:
+      """
+      Build a differential operator for wider stencils (second-order upwind).
+
+      :param axis: The axis for which to build the operator ('x' or 'y')
+      :param stencil: Coefficients for the finite difference stencil
+      :param diags: Diagonals for the sparse matrix representation
+      :return: The constructed sparse matrix operator
+      """
+      n = self.mesh.n
+      e = np.ones(n[axis])
+      # Create basic operator with the stencil
+      op = sp.spdiags([c*e for c in stencil], diags, n[axis], n[axis])
+
+      # Handle periodic boundary conditions for wider stencil
+      if isinstance(self.bc, bc_mod.PeriodicBC):
+
+          op = op.tolil()
+          # For positive flow with backward bias [1, -4, 3, 0]
+          # We need to connect:
+          # - Point 0 needs data from points n-2 and n-1
+          # - Point 1 needs data from point n-1
+          op[0, n[axis]-2] = stencil[0]  # Connect point 0 to point n-2
+          op[0, n[axis]-1] = stencil[1]  # Connect point 0 to point n-1
+          op[1, n[axis]-1] = stencil[0]  # Connect point 1 to point n-1
+      elif self.bc.op is not None:
+          # For non-periodic boundaries, apply standard BC handling
+          for (method, bc_op) in self.bc.op[axis].items():
+              index = 0 if (method == "fwd") else -1
+              op += stencil[index] * bc_op
+
+      # Map to 2D grid as before
+      if axis == "x":
+          op = sp.kron(sp.eye(n["y"]), op)
+      else:
+          op = sp.kron(op, sp.eye(n["x"]))
+
+      return op.tocsr()

@@ -27,7 +27,8 @@ class Burgers2D(object):
   def __init__(
     self,
     mesh: mesh_mod.MESH_TYPES,
-    nu: float
+    nu: float,
+    upwind: bool = False
   ) -> None:
     # Mesh
     self.mesh = mesh
@@ -41,6 +42,8 @@ class Burgers2D(object):
     # Runtime
     self.runtime = {k: 0.0 for k in ("total", "lin_solve", "res_jac")}
     self.built = False
+    # Scheme
+    self.upwind = upwind
 
   # Building
   # ===================================
@@ -61,7 +64,8 @@ class Burgers2D(object):
     self.diff_ops = DiffOperators(
       nu=self.nu,
       bc=self.bc,
-      mesh=self.mesh
+      mesh=self.mesh,
+      upwind=self.upwind
     )
     self.diff_ops.build()
     self.ops = self.diff_ops.ops
