@@ -28,12 +28,14 @@ class DiffOperators(object):
     bc: bc_mod.BC_TYPES,
     mesh: mesh_mod.MESH_TYPES,
     upwind: bool,
+    upwind_order: int = 2,
   ) -> None:
     self.nu = nu
     self.bc = bc
     self.mesh = mesh
     self.built = False
     self.upwind = upwind
+    self.upwind_order = upwind_order  # 1 for first-order, 2 for second-order
 
   # Building
   # ===================================
@@ -54,7 +56,11 @@ class DiffOperators(object):
     """
 
     if self.upwind:
-        return self.build_upwind_2nd()
+      if self.upwind_order == 1:
+          print('using first order')
+          return self.build_upwind_1st()
+      else:
+          return self.build_upwind_2nd()
 
     self.ops = {"D": 0.0}
     for axis in ("x", "y"):
@@ -99,6 +105,30 @@ class DiffOperators(object):
     else:
       op = sp.kron(op, sp.eye(n["x"]))
     return op.tocsr()
+
+  def build_upwind_1st(self) -> None:
+    """
+    Build differential operators using first-order upwind scheme,
+    assuming positive flow direction for both x and y.
+    """
+    self.ops = {"D": 0.0}
+    for axis in ("x", "y"):
+        h = self.mesh.h[axis]
+
+        # First-order backward difference for first derivative (for positive flow)
+        # Formula: (f_i - f_{i-1})/h
+        upwind_stencil = [-1, 1, 0]  # Coefficients for points i-1, i, i+1
+        upwind_diags = [-1, 0, 1]   # Diagonal positions
+
+        # We can use the standard _build_op since first-order has same stencil width
+        Ai = self._build_op(axis, stencil=upwind_stencil, diags=upwind_diags)
+        self.ops[f"A{axis}"] = (-1.0/h) * Ai  # Negative sign as in 2nd order
+
+        # Standard second-order central for diffusion (unchanged)
+        Di = self._build_op(axis, stencil=[1, -2, 1], diags=[-1, 0, 1])
+        self.ops["D"] = self.ops["D"] + (self.nu/h**2) * Di
+
+    self.built = True
 
 
   def build_upwind_2nd(self) -> None:

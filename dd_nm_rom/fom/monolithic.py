@@ -28,7 +28,8 @@ class Burgers2D(object):
     self,
     mesh: mesh_mod.MESH_TYPES,
     nu: float,
-    upwind: bool = False
+    upwind: bool = False,
+    upwind_order: int =1
   ) -> None:
     # Mesh
     self.mesh = mesh
@@ -44,6 +45,7 @@ class Burgers2D(object):
     self.built = False
     # Scheme
     self.upwind = upwind
+    self.upwind_order = upwind_order
 
   # Building
   # ===================================
@@ -65,7 +67,8 @@ class Burgers2D(object):
       nu=self.nu,
       bc=self.bc,
       mesh=self.mesh,
-      upwind=self.upwind
+      upwind=self.upwind,
+      upwind_order=self.upwind_order
     )
     self.diff_ops.build()
     self.ops = self.diff_ops.ops
