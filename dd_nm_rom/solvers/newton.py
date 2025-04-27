@@ -40,6 +40,7 @@ class Newton(Solver):
     tol: float = 1e-3,
     maxit: int = 20,
     stepsize_min: float = 1e-10,
+    iostep: int = 1,
     verbose: bool = False
   ) -> None:
     super(Newton, self).__init__(
@@ -47,6 +48,7 @@ class Newton(Solver):
       tol=tol,
       maxit=maxit,
       stepsize_min=stepsize_min,
+      iostep=iostep,
       verbose=verbose
     )
 

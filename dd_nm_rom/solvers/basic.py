@@ -36,12 +36,14 @@ class Solver(object):
     tol: float = 1e-3,
     maxit: int = 20,
     stepsize_min: float = 1e-10,
+    iostep: int = 1,
     verbose: bool = False
   ) -> None:
     self.model = model
     self.tol = tol
     self.maxit = maxit
     self.stepsize_min = stepsize_min
+    self.iostep = iostep
     self.verbose = verbose
     self.squared_res = False
     self.set_header()
@@ -136,7 +138,8 @@ class Solver(object):
       if use_guess:
         self.model.x_old = guess[i]
       # Store
-      x.append(xi)
+      if ((i+1) % self.iostep == 0):
+        x.append(xi)
       if (i == 0):
         steps = [[] for _ in step]
       for (j, obj) in enumerate(step):

@@ -172,6 +172,7 @@ class Burgers2D(object):
     tol: float = 1e-8,
     maxit: int = 50,
     stepsize_min: float = 1e-10,
+    iostep: int = 1,
     verbose: bool = False
   ) -> SOL_TYPE:
     """
@@ -190,6 +191,7 @@ class Burgers2D(object):
       tol=tol,
       maxit=maxit,
       stepsize_min=stepsize_min,
+      iostep=iostep,
       verbose=verbose
     )
     # Solving
