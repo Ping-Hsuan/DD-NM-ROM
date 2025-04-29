@@ -434,6 +434,7 @@ class DD_LS_ROM(object):
     tol=1e-8,
     maxit=50,
     stepsize_min=1e-10,
+    iostep: int = 1,
     verbose=False
   ):
     """
@@ -451,6 +452,7 @@ class DD_LS_ROM(object):
       tol=tol,
       maxit=maxit,
       stepsize_min=stepsize_min,
+      iostep=iostep,
       verbose=verbose
     )
     # Solving
