@@ -438,7 +438,7 @@ class DD_NM_ROM(object):
       tol=tol,
       maxit=maxit,
       stepsize_min=stepsize_min,
-    iostep: int = 1,
+      iostep=iostep,
       verbose=verbose
     )
     # Solving
