@@ -40,7 +40,7 @@ class PoissonForce(BasicField):
       self.configs = np.unique(self.configs, axis=0)
     # Define design space, create an array whose first column is range for configuration index
     # remaining columns define the min/max force magnitude for each subdomain
-    self.design_space = [[0,len(self.configs)]] + [self.mu_lim]*self.mesh.n_sub + [[2, 2]]*2
+    self.design_space = [[0,len(self.configs)]] + [self.mu_lim]*self.mesh.n_sub + [[2, 6]]*2
     self.design_space = np.array(self.design_space).T
 
   def sample_design_space(self) -> np.ndarray:
@@ -48,8 +48,8 @@ class PoissonForce(BasicField):
     force_magnitudes[3] = force_magnitudes[1] + force_magnitudes[2] - force_magnitudes[0]
 
     # Generate frequency parameters (integer and even values between 2 and 6)
-    freq_x = 2 * np.random.randint(1, 2)  # Will give 2, 4, or 6
-    freq_y = 2 * np.random.randint(1, 2)  # Will give 2, 4, or 6
+    freq_x = 2 * np.random.randint(1, 4)  # Will give 2, 4, or 6
+    freq_y = 2 * np.random.randint(1, 4)  # Will give 2, 4, or 6
 
     mu = np.concatenate([force_magnitudes, [freq_x, freq_y]])
     return mu
