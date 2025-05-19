@@ -52,7 +52,9 @@ class Subdomain(object):
     lambdas: np.ndarray,
     steady: bool = True,
     dt: float = 0.0,
-    uv_old: Union[dtypes.UV_TYPE, None] = None
+    uv_old: Union[dtypes.UV_TYPE, None] = None,
+    force: dtypes.UV_TYPE = None,
+    class_name: str = None
   ) -> dtypes.KKT_TYPE:
     """
     Compute residual and its jacobians with respect
@@ -60,6 +62,7 @@ class Subdomain(object):
     """
     # Assemble u and v on residual region
     uv = self.map_on_res(uv)
+    force = self.map_on_res(force)
     if (not steady):
       uv_old = self.map_on_res(uv_old)
     # Residual and Jacobian
@@ -68,7 +71,9 @@ class Subdomain(object):
       elem_states=self.elem_states,
       steady=steady,
       dt=dt,
-      uv_old=uv_old
+      uv_old=uv_old,
+      force=force,
+      class_name=class_name
     )
     cres, cjac = self.compute_cres_cjac(uv=uv)
     # Return KKT system
@@ -102,13 +107,15 @@ class Subdomain(object):
     steady: bool = True,
     dt: float = 0.0,
     uv_old: Union[dtypes.UV_TYPE, None] = None,
-    jac_fun: Union[callable, None] = None
+    jac_fun: Union[callable, None] = None,
+    force: dtypes.UV_TYPE = None,
+    class_name: str = None
   ) -> dtypes.RES_JAC_TYPE:
     # Precompute actions of operators
     ops_uv = self.action_ops(uv, elem_states)
     # Residual and Jacobian
-    res = self.compute_res(uv, elem_states, ops_uv, steady, dt, uv_old)
-    jac = self.compute_jac(uv, elem_states, ops_uv, steady, dt, jac_fun)
+    res = self.compute_res(uv, elem_states, ops_uv, steady, dt, uv_old, force, class_name)
+    jac = self.compute_jac(uv, elem_states, ops_uv, steady, dt, jac_fun, class_name)
     return res, jac
 
   def action_ops(
@@ -136,10 +143,12 @@ class Subdomain(object):
     ops_uv: dtypes.UV_TYPE,
     steady: bool = True,
     dt: float = 0.0,
-    uv_old: Union[dtypes.UV_TYPE, None] = None
+    uv_old: Union[dtypes.UV_TYPE, None] = None,
+    force: dtypes.UV_TYPE = None,
+    class_name: str = None
   ) -> np.ndarray:
     # Compute
-    res = self._compute_res(uv, elem_states, ops_uv)
+    res = self._compute_res(uv, elem_states, ops_uv, force, class_name)
     # Backward Euler for integration
     if (not steady):
       for x_k in ("u", "v"):
@@ -152,7 +161,9 @@ class Subdomain(object):
     self,
     uv: dtypes.UV_TYPE,
     elem_states: Dict[str, callable],
-    ops_uv: dtypes.UV_TYPE
+    ops_uv: dtypes.UV_TYPE,
+    force: dtypes.UV_TYPE = None,
+    class_name: str = None
   ) -> Dict[str, np.ndarray]:
     bc_f = elem_states["res"].bc_f
     dx = {}
@@ -161,11 +172,14 @@ class Subdomain(object):
         u, v = [uv["res"][x_k+"_"+x_i] for x_i in ("u", "v")]
       else:
         u, v = [uv["res"][x_i] for x_i in ("u", "v")]
-      adv_act_x = ops_uv[x_k]["Ax"] - bc_f[x_k]["A"]["x"]
-      adv_act_y = ops_uv[x_k]["Ay"] - bc_f[x_k]["A"]["y"]
-      dx[x_k] = ops.sp_diag(u) @ adv_act_x \
-              + ops.sp_diag(v) @ adv_act_y \
-              + ops_uv[x_k]["D"] + bc_f[x_k]["D"]
+      if class_name == 'DDPoisson2D':
+        dx[x_k] = ops_uv[x_k]["D"] + bc_f[x_k]["D"] - force["res"][x_k]
+      else:
+        adv_act_x = ops_uv[x_k]["Ax"] - bc_f[x_k]["A"]["x"]
+        adv_act_y = ops_uv[x_k]["Ay"] - bc_f[x_k]["A"]["y"]
+        dx[x_k] = ops.sp_diag(u) @ adv_act_x \
+                + ops.sp_diag(v) @ adv_act_y \
+                + ops_uv[x_k]["D"] + bc_f[x_k]["D"]
     return dx
 
   def compute_jac(
@@ -175,11 +189,12 @@ class Subdomain(object):
     ops_uv: dtypes.UV_TYPE,
     steady: bool = True,
     dt: float = 0.0,
-    jac_fun: Union[callable, None] = None
+    jac_fun: Union[callable, None] = None,
+    class_name: str = None
   ) -> Dict[str, sp.spmatrix]:
     # Compute
     jac_fun = self._compute_jac if (jac_fun is None) else jac_fun
-    jac = jac_fun(uv, elem_states, ops_uv)
+    jac = jac_fun(uv, elem_states, ops_uv, class_name)
     # Backward Euler for integration
     if (not steady):
       for e_k in ("interior", "interface"):
@@ -191,29 +206,47 @@ class Subdomain(object):
     self,
     uv: dtypes.UV_TYPE,
     elem_states: Dict[str, callable],
-    ops_uv: dtypes.UV_TYPE
+    ops_uv: dtypes.UV_TYPE,
+    class_name: str = None
   ) -> Dict[str, sp.spmatrix]:
     jac = {}
     bc_f = elem_states["res"].bc_f
-    jac_uu = ops.sp_diag(ops_uv["u"]["Ax"] - bc_f["u"]["A"]["x"])
-    jac_uv = ops.sp_diag(ops_uv["u"]["Ay"] - bc_f["u"]["A"]["y"])
-    jac_vu = ops.sp_diag(ops_uv["v"]["Ax"] - bc_f["v"]["A"]["x"])
-    jac_vv = ops.sp_diag(ops_uv["v"]["Ay"] - bc_f["v"]["A"]["y"])
-    uv_diag = ops.map_nested_dict(uv["res"], ops.sp_diag)
-    for e_k in ("interior", "interface"):
-      state_k = elem_states[e_k]
-      jac_xx_k = uv_diag["u"] @ state_k.ops["Ax"] \
-               + uv_diag["v"] @ state_k.ops["Ay"] \
-               + state_k.ops["D"]
-      jac_uu_k = jac_uu @ state_k.iden + jac_xx_k
-      jac_uv_k = jac_uv @ state_k.iden
-      jac_vu_k = jac_vu @ state_k.iden
-      jac_vv_k = jac_vv @ state_k.iden + jac_xx_k
-      jac[e_k] = sp.bmat(
-        [[jac_uu_k, jac_uv_k],
-         [jac_vu_k, jac_vv_k]],
-        format="csr"
-      )
+
+    if class_name == 'DDPoisson2D':
+      for e_k in ("interior", "interface"):
+        state_k = elem_states[e_k]
+        m = state_k.iden.shape[0]
+        n = state_k.iden.shape[1]
+        jac_xx_k = state_k.ops["D"]
+        jac_uu_k = jac_xx_k
+        jac_uv_k = sp.csr_matrix((m, n))
+        jac_vu_k = sp.csr_matrix((m, n))
+        jac_vv_k = jac_xx_k
+        jac[e_k] = sp.bmat(
+          [[jac_uu_k, jac_uv_k],
+          [jac_vu_k, jac_vv_k]],
+          format="csr"
+        )
+    else:
+      jac_uu = ops.sp_diag(ops_uv["u"]["Ax"] - bc_f["u"]["A"]["x"])
+      jac_uv = ops.sp_diag(ops_uv["u"]["Ay"] - bc_f["u"]["A"]["y"])
+      jac_vu = ops.sp_diag(ops_uv["v"]["Ax"] - bc_f["v"]["A"]["x"])
+      jac_vv = ops.sp_diag(ops_uv["v"]["Ay"] - bc_f["v"]["A"]["y"])
+      uv_diag = ops.map_nested_dict(uv["res"], ops.sp_diag)
+      for e_k in ("interior", "interface"):
+        state_k = elem_states[e_k]
+        jac_xx_k = uv_diag["u"] @ state_k.ops["Ax"] \
+                + uv_diag["v"] @ state_k.ops["Ay"] \
+                + state_k.ops["D"]
+        jac_uu_k = jac_uu @ state_k.iden + jac_xx_k
+        jac_uv_k = jac_uv @ state_k.iden
+        jac_vu_k = jac_vu @ state_k.iden
+        jac_vv_k = jac_vv @ state_k.iden + jac_xx_k
+        jac[e_k] = sp.bmat(
+          [[jac_uu_k, jac_uv_k],
+          [jac_vu_k, jac_vv_k]],
+          format="csr"
+        )
     return jac
 
   # Residual/Jacobian - Constraints
