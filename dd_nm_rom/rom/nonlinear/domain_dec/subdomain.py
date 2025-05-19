@@ -168,11 +168,14 @@ class SubdomainROM(object):
     lambdas,
     steady=True,
     dt=0.0,
-    z_old=None
+    z_old=None,
+    force=None,
+    class_name=None
   ):
     # Reconstruct u and v
     # -------------
     uv, dec_jac = self.reconstruct_uv(z, with_jac=True, map_on_res=True)
+    force = self.map_on_res(force)
     uv_old = None
     if (not steady):
       uv_old = self.reconstruct_uv(z_old, with_jac=False, map_on_res=True)
@@ -184,7 +187,9 @@ class SubdomainROM(object):
       steady=steady,
       dt=dt,
       uv_old=uv_old,
-      jac_fun=self.compute_jac
+      jac_fun=self.compute_jac,
+      force=force,
+      class_name=class_name
     )
     for e_k in ("interior", "interface"):
       jac[e_k] = jac[e_k] @ dec_jac[e_k]

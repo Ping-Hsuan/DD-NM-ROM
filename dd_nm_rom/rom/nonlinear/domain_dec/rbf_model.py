@@ -13,11 +13,13 @@ class RBFModel(object):
   def __init__(
     self,
     subdomains,
-    n_constraints
+    n_constraints,
+    dd_fom
   ):
     self.interpolator = None
     self.subdomains = subdomains
     self.n_constraints = n_constraints
+    self.dd_fom = dd_fom
 
   def __call__(
     self,
@@ -59,12 +61,23 @@ class RBFModel(object):
     lambdas = np.zeros(self.n_constraints)
     runtime += time()-start
     runtime_s = 0.0
+    if self.dd_fom.f is not None:
+      force, *_ = self.dd_fom.assemble_sol(self.dd_fom.f, map_on_res=False)
     for (s, sub) in enumerate(self.subdomains):
       start_s = time()
       z_s = {}
       for e_k in ("interior", "interface"):
         z_s[e_k] = self.interpolator[e_k][s](mu).squeeze()
-      res_s, *_, cjac_s = sub.res_jac(z_s, lambdas)
+      if self.dd_fom.f is not None:
+        force_s = self.dd_fom.extract_uv_sub_from_dict(force, s)
+      res_s, *_, cjac_s = sub.res_jac(
+        z=z_s,
+        lambdas=lambdas,
+        steady=True,
+        dt=0.0,
+        force=force_s,
+        class_name = self.dd_fom.__class__.__name__
+        )
       runtime_s = max(time()-start_s, runtime_s)
       start = time()
       # Solution
