@@ -198,6 +198,19 @@ class BasicField(object):
     """
     pass
 
+  @abc.abstractmethod
+  def get_force(self, *args, **kwargs) -> np.ndarray:
+    """
+    Abstract method to get the force for the field.
+
+    :param args: Positional arguments for force retrieval.
+    :param kwargs: Keyword arguments for force retrieval.
+
+    :return: Force for the field.
+    :rtype: np.ndarray
+    """
+    pass
+
   # Boundary conditions
   # ===================================
   def get_bc_funval(self) -> Dict[str, Dict[str, callable]]:
