@@ -206,3 +206,198 @@ class Burgers2D(object):
     uv = self.extract_uv(x, diag=False)
     converged = True if (flag[-1] == 0) else False
     return uv, res, converged
+
+class Poisson2D(object):
+  """
+  Generate FOM for 2D Poisson equation solutions.
+  """
+
+  # Initialization
+  # ===================================
+  def __init__(
+    self,
+    mesh: mesh_mod.MESH_TYPES,
+    nu: float
+  ) -> None:
+    # Mesh
+    self.mesh = mesh
+    self.mesh.is_built()
+    # Viscosity
+    self.nu = nu
+    # Integration
+    self.steady = True
+    self.x_old = None
+    self.dt = 0.0
+    # Runtime
+    self.runtime = {k: 0.0 for k in ("total", "lin_solve", "res_jac")}
+    self.built = False
+    # Force term in the Poisson
+    self.f = None
+
+  # Building
+  # ===================================
+  def is_built(self) -> None:
+    if (not self.built):
+      raise ValueError(
+        "FOM model not built. Please, call 'build' method first."
+      )
+
+  def build(
+    self,
+    field: field_mod.FIELD_TYPES,
+    force: np.ndarray = None
+  ) -> None:
+    # BC
+    self.bc = self.build_bc(field)
+    self.bc_f = self.bc.f
+    # Operators
+    self.diff_ops = DiffOperators(
+      nu=self.nu,
+      bc=self.bc,
+      mesh=self.mesh,
+      upwind=False,
+      upwind_order=1
+    )
+    self.diff_ops.build()
+    self.ops = self.diff_ops.ops
+    self.ops_names = list(self.ops.keys())
+    # Identities
+    self.iden = sp.eye(self.mesh.nxy).tocsr()
+    self.iden_uv = sp.eye(self.get_ndof()).tocsr()
+
+    # Set forcing term
+    if force is None:
+      # Default to zero force if not provided
+      self.f = np.zeros(self.get_ndof())
+    else:
+      self.f = force
+    self.built = True
+
+  def build_bc(
+    self,
+    field: field_mod.FIELD_TYPES
+  ) -> bc_mod.BC_TYPES:
+    if (field.bc_type == "dirichlet"):
+      bc_cls = bc_mod.DirichletBC
+    elif (field.bc_type == "neumann"):
+      bc_cls = bc_mod.NeumannBC
+    else:
+      bc_cls = bc_mod.PeriodicBC
+    bc = bc_cls(
+      nu=self.nu,
+      mesh=self.mesh,
+      funval=field.get_bc_funval(),
+      advection=False
+    )
+    bc.build()
+    return bc
+
+  def get_ndof(self) -> int:
+    return 2*self.mesh.nxy
+
+  # Residual/Jacobian
+  # ===================================
+  def res_jac(
+    self,
+    x: np.ndarray
+  ) -> RES_JAC_TYPE:
+    start = time()
+    res, jac = self.compute_res_jac(x)
+    # Backward Euler for integration
+    if (not self.steady):
+      res = x - self.x_old - self.dt*res
+      jac = self.iden_uv - self.dt*jac
+    delta = time()-start
+    self.runtime["total"] += delta
+    self.runtime["res_jac"] += delta
+    return res, jac
+
+  def compute_res_jac(
+    self,
+    x: np.ndarray
+  ) -> RES_JAC_TYPE:
+    # Extract u and v
+    uv, uv_diag = self.extract_uv(x, diag=True)
+
+    # Split force into u and v components
+    f_uv = {"u": self.f[:self.mesh.nxy], "v": self.f[self.mesh.nxy:]}
+#   # Action of advection operator on vectors
+#   adv_act = {}
+#   for axis in ("x", "y"):
+#     adv_act[axis] = {}
+#     for k in ("u", "v"):
+#       adv_act[axis][k] = self.ops[f"A{axis}"] @ uv[k] \
+#                        - self.bc_f[k]["A"][axis]
+    # Compute residual
+    dx = []
+    for k in ("u", "v"):
+      dx_k = self.ops["D"] @ uv[k] + self.bc_f[k]["D"] - f_uv[k]
+      dx.append(dx_k)
+    res = np.concatenate(dx)
+    # Compute Jacobian
+    jac_xx = self.ops["D"]
+    jac_uu = jac_xx
+    jac_uv = sp.csr_matrix((self.mesh.nxy, self.mesh.nxy))
+    jac_vu = sp.csr_matrix((self.mesh.nxy, self.mesh.nxy))
+    jac_vv = jac_xx
+    jac = sp.bmat(
+      [[jac_uu, jac_uv],
+       [jac_vu, jac_vv]],
+      format="csr"
+    )
+    return res, jac
+
+  def extract_uv(
+    self,
+    x: np.ndarray,
+    diag: bool = True
+  ) -> Union[Tuple[UV_TYPE, UV_TYPE], UV_TYPE]:
+    uv = {"u": x[:self.mesh.nxy], "v": x[self.mesh.nxy:]}
+    if diag:
+      uv_diag = ops.map_nested_dict(uv, ops.sp_diag)
+      return uv, uv_diag
+    else:
+      return uv
+
+  # Solving
+  # ===================================
+  def solve(
+    self,
+    x0: Union[np.ndarray, None] = None,
+    dt: float = 0.0,
+    nt: int = 1,
+    steady: bool = True,
+    tol: float = 1e-8,
+    maxit: int = 50,
+    stepsize_min: float = 1e-10,
+    iostep: int = 1,
+    verbose: bool = False
+  ) -> SOL_TYPE:
+    """
+    Solves for the u and v states of the FOM using Newton"s method.
+    """
+    self.is_built()
+    self.runtime = ops.map_nested_dict(self.runtime, lambda _: 0.0)
+    # Initialize solution
+    start = time()
+    if (x0 is None):
+      x0 = np.zeros(self.get_ndof())
+    self.runtime["total"] += time()-start
+    # Initialize solver
+    solver = solvers.Newton(
+      model=self,
+      tol=tol,
+      maxit=maxit,
+      stepsize_min=stepsize_min,
+      iostep=iostep,
+      verbose=verbose
+    )
+    # Solving
+    self.steady = bool(steady)
+    if self.steady:
+      dt, nt = 0.0, 1
+    x, res, *_, flag = solver(x0, dt, nt)
+    # Return solution
+    uv = self.extract_uv(x, diag=False)
+    converged = True if (flag[-1] == 0) else False
+    return uv, res, converged
