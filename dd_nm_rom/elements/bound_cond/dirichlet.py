@@ -30,7 +30,8 @@ class DirichletBC(object):
     self,
     nu: float,
     mesh: mesh_mod.MESH_TYPES,
-    funval: Dict[str,Dict[str,callable]]
+    funval: Dict[str,Dict[str,callable]],
+    advection: bool = True
   ) -> None:
     self.name = "dirichlet"
     self.nu = nu
@@ -41,6 +42,7 @@ class DirichletBC(object):
     # Control variables
     self.built = False
     self.update_built = True
+    self.advection = advection
 
   # Building
   # ===================================
@@ -69,10 +71,10 @@ class DirichletBC(object):
           axis=axis,
           method=method
         )
-      self.f[k] = {
-        "A": self._compose_adv_src(f_k),
-        "D": self._compose_dif_src(f_k)
-      }
+      self.f[k] = {"D": self._compose_dif_src(f_k)}
+      print(self.advection)
+      if self.advection:
+        self.f[k]["A"] = self._compose_adv_src(f_k)
     if self.update_built:
       self.built = True
 

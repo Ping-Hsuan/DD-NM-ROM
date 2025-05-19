@@ -32,9 +32,10 @@ class NeumannBC(DirichletBC):
     self,
     nu: float,
     mesh: mesh_mod.MESH_TYPES,
-    funval: Dict[str,Dict[str,callable]]
+    funval: Dict[str,Dict[str,callable]],
+    advection: bool = True
   ) -> None:
-    super(NeumannBC, self).__init__(nu, mesh, funval)
+    super(NeumannBC, self).__init__(nu, mesh, funval, advection)
     self.name = "neumann"
     self.update_built = False
 

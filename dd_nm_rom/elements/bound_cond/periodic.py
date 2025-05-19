@@ -31,9 +31,10 @@ class PeriodicBC(NeumannBC):
     self,
     nu: float,
     mesh: mesh_mod.MESH_TYPES,
-    funval: Dict[str,Dict[str,callable]]
+    funval: Dict[str,Dict[str,callable]],
+    advection: bool = True
   ) -> None:
-    super(PeriodicBC, self).__init__(nu, mesh, funval)
+    super(PeriodicBC, self).__init__(nu, mesh, funval, advection)
     self.name = "periodic"
 
   # Building
