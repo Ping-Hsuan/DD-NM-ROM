@@ -154,6 +154,8 @@ class Solver(object):
     x = np.vstack(x).T
     if ((dt == 0.0) and (nt == 1)):
       x = x[:,-1]
+      if x.ndim == 1:
+        x = x[np.newaxis, :].T
       steps = [obj[-1] for obj in steps]
     self.model.runtime["total"] += time()-start
     return x, *steps
