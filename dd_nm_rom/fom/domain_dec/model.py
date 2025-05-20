@@ -52,6 +52,8 @@ class DDBurgers2D(object):
     self.steady = True
     self.x_old = None
     self.dt = 0.0
+    # Force term in the Poisson
+    self.f = None
     # Control variables
     # -------------
     self.built = False

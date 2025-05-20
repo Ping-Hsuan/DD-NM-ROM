@@ -175,7 +175,8 @@ class SubdomainROM(object):
     # Reconstruct u and v
     # -------------
     uv, dec_jac = self.reconstruct_uv(z, with_jac=True, map_on_res=True)
-    force = self.map_on_res(force)
+    if force is not None:
+      force = self.map_on_res(force)
     uv_old = None
     if (not steady):
       uv_old = self.reconstruct_uv(z_old, with_jac=False, map_on_res=True)

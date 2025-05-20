@@ -290,6 +290,7 @@ class DD_NM_ROM(object):
     runtime_s = 0.0
     for (s, sub) in enumerate(self.subdomains):
       start_s = time()
+      force_s = None
       if self.force:
         force_s = self.dd_fom.extract_uv_sub_from_dict(force, s)
       # > Compute quantities needed for KKT system
