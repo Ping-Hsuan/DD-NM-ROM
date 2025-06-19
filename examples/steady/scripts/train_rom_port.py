@@ -5,6 +5,7 @@ Train ports autoencoders for DD-NM-ROM.
 import sys
 import json
 import argparse
+import os
 
 # Inputs
 # =====================================
@@ -109,9 +110,13 @@ for model in nn_models:
   refine = inputs["autoencoder"].get("refine", False)
   if refine:
     saved_model = path_i + "/scratch/training/ckpt/model_best_torch.p"
+    saved_checkpoint = path_i + "/scratch/training/ckpt/model_best_checkpoint.p"
     inputs["autoencoder"]["common"]["loading"] = True
     inputs["autoencoder"]["common"]["saved_model"] = saved_model
     path_i = path_i + "/refine/"
+
+    # Flag to indicate checkpoint loading
+    use_checkpoint = os.path.exists(saved_checkpoint)
   else:
     path_i = path_i + "/scratch/"
   net = Autoencoder(
@@ -128,7 +133,27 @@ for model in nn_models:
     path=path_i
   )
   nn_mdl.compile(**inputs["model"]["compile"])
-  nn_mdl.train(**inputs["model"]["train"])
+  # After nn_mdl.compile() but before nn_mdl.train()
+  if refine and use_checkpoint:
+    checkpoint = nn_mdl.load_checkpoint(saved_checkpoint)
+    current_epoch = checkpoint.get('epoch', 0)  # Get current epoch from checkpoint
+    remaining_epochs = inputs["model"]["train"].get("epochs", 100)  # Get original total epochs
+    # Set the epoch counter to continue from where we left off
+    nn_mdl.train_state.epoch = current_epoch+1
+
+    # Set the total epochs for display purposes
+    total_epochs = current_epoch+1 + remaining_epochs
+
+    # Create a copy of train params and update epochs
+    train_params = inputs["model"]["train"].copy()
+    train_params["epochs"] = total_epochs
+
+    print(f"Resuming from epoch {current_epoch+1} and training for {remaining_epochs} more epochs (total: {total_epochs})")
+
+    # Pass the updated parameters to train
+    nn_mdl.train(**train_params)
+  else:
+    nn_mdl.train(**inputs["model"]["train"])
 
   # Copy input file
   shutil.copyfile(args.inpfile, path_i+"/inputs.json")
