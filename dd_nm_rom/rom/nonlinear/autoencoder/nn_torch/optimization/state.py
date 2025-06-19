@@ -4,8 +4,8 @@ import numpy as np
 
 class TrainState(object):
 
-  def __init__(self):
-    self.epoch = 0
+  def __init__(self, start_epoch=0):
+    self.epoch = start_epoch
     self._logs = {}
     self.logs = {}
     self.epochs = 1
@@ -22,6 +22,8 @@ class TrainState(object):
       self._logs[k].append(float(v))
 
   def on_epoch_begin(self):
+    for k in self._logs.keys():
+        self._logs[k] = []
     self.epoch_start = time.time()
     if (self.epoch % self.display_freq == 0):
       text = "Epoch {:4d}/{:d}".format(self.epoch+1, self.epochs)

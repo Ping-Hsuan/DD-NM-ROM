@@ -47,7 +47,7 @@ class Data(object):
       self.train = data
 
   def batch(self, data):
-    data = self.shuffle(data)
+    data = self.shuffle(data, seed=bkd.seed())
     nb_samples = data.shape[0]
     nb_batches = int(np.ceil(nb_samples/self.batch_size))
     return torch.tensor_split(data, nb_batches, dim=0)

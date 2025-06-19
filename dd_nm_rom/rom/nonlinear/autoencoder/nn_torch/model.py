@@ -1,4 +1,5 @@
 import os
+import numpy as np
 import torch
 
 from . import optimization as optim
@@ -100,7 +101,7 @@ class Model(object):
       self.save()
 
   def train_sgd(self):
-    for _ in range(self.train_state.epochs):
+    for _ in range(self.train_state.epoch, self.train_state.epochs):
       # On epoch begin calls
       self.train_state.on_epoch_begin()
       self.callbacks.on_epoch_begin()
@@ -165,3 +166,33 @@ class Model(object):
       filename = self.dirs["save"] + "/model_last"
     torch.save(self.net.state_dict(), filename+"_torch.p")
     torch.save(self.net.state_dict_np(), filename+"_numpy.p")
+
+    # Save complete checkpoint with optimizer and scheduler state
+    checkpoint = {
+        'model_state_dict': self.net.state_dict(),
+        'optimizer_state_dict': self.optimizer.state_dict(),
+        'epoch': self.train_state.epoch,
+        'random_state': np.random.get_state()
+    }
+
+    if self.lr_scheduler is not None:
+        checkpoint['scheduler_state_dict'] = self.lr_scheduler.state_dict()
+
+    torch.save(checkpoint, filename + "_checkpoint.p")
+
+  def load_checkpoint(self, checkpoint_path):
+    checkpoint = torch.load(checkpoint_path,  weights_only=False)
+
+    # Load optimizer state
+    self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+    self.train_state.epoch = checkpoint['epoch']
+
+    # Load scheduler if available
+    if 'scheduler_state_dict' in checkpoint and self.lr_scheduler is not None:
+        self.lr_scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
+
+    # Restore random state
+    if 'random_state' in checkpoint:
+      np.random.set_state(checkpoint['random_state'])
+
+    return checkpoint
