@@ -62,7 +62,8 @@ class Subdomain(object):
     """
     # Assemble u and v on residual region
     uv = self.map_on_res(uv)
-    force = self.map_on_res(force)
+    if force is not None:
+      force = self.map_on_res(force)
     if (not steady):
       uv_old = self.map_on_res(uv_old)
     # Residual and Jacobian
