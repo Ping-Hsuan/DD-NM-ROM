@@ -29,7 +29,8 @@ class Burgers2D(object):
     mesh: mesh_mod.MESH_TYPES,
     nu: float,
     upwind: bool = False,
-    upwind_order: int =1
+    upwind_order: int =1,
+    compact: bool = False
   ) -> None:
     # Mesh
     self.mesh = mesh
@@ -46,6 +47,7 @@ class Burgers2D(object):
     # Scheme
     self.upwind = upwind
     self.upwind_order = upwind_order
+    self.compact = compact
 
   # Building
   # ===================================
@@ -106,7 +108,10 @@ class Burgers2D(object):
     x: np.ndarray
   ) -> RES_JAC_TYPE:
     start = time()
-    res, jac = self.compute_res_jac(x)
+    if self.compact:
+      res, jac = self.compute_res_jac_compact(x)
+    else:
+      res, jac = self.compute_res_jac(x)
     # Backward Euler for integration
     if (not self.steady):
       res = x - self.x_old - self.dt*res
@@ -206,6 +211,85 @@ class Burgers2D(object):
     uv = self.extract_uv(x, diag=False)
     converged = True if (flag[-1] == 0) else False
     return uv, res, converged
+
+  def compute_res_jac_compact(
+    self,
+    x: np.ndarray
+  ) -> RES_JAC_TYPE:
+    """Compute residual and jacobian for the compact upwind scheme
+    """
+    # Extract u and v
+    uv, uv_diag = self.extract_uv(x, diag=True)
+    # Action of advection operator on vectors
+    adv_act = {}
+
+    for axis in ("x", "y"):
+      # Determine which velocity component to check
+      vel_component = "u" if axis == "x" else "v"
+      vel = uv[vel_component]
+
+      # Create masks for positive and negative velocities
+      pos_mask = (vel >= 0)
+      neg_mask = (vel < 0)
+
+      adv_act[axis] = {}
+      for k in ("u", "v"):
+        # Apply both operators to the solution vector
+        pos_result = self.ops[f"A{axis}_pos"] @ uv[k]
+        neg_result = self.ops[f"A{axis}_neg"] @ uv[k]
+
+        # Combine results based on velocity direction
+        result = np.zeros_like(pos_result)
+        result[pos_mask] = pos_result[pos_mask]
+        result[neg_mask] = neg_result[neg_mask]
+
+        # Apply boundary condition adjustments
+        adv_act[axis][k] = result - self.bc_f[k]["A"][axis]
+
+    # Compute residual
+    dx = []
+    for k in ("u", "v"):
+      dx_k = uv_diag["u"] @ adv_act["x"][k] \
+           + uv_diag["v"] @ adv_act["y"][k] \
+           + self.ops["D"] @ uv[k] + self.bc_f[k]["D"]
+      dx.append(dx_k)
+    res = np.concatenate(dx)
+
+    # Compute Jacobian with direction-dependent operators
+    jac_operators = {}
+    for axis in ("x", "y"):
+      vel_component = "u" if axis == "x" else "v"
+      vel = uv[vel_component]
+      pos_mask = (vel >= 0)
+      neg_mask = (vel < 0)
+
+      # Create a copy of the positive operator
+      blended_op = self.ops[f"A{axis}_pos"].copy()
+
+      # Replace rows where velocity is negative
+      if neg_mask.any():
+        neg_indices = np.where(neg_mask)[0]
+        Ax_neg = self.ops[f"A{axis}_neg"]
+        for i in neg_indices:
+          blended_op[i] = Ax_neg[i]
+
+      jac_operators[f"A{axis}"] = blended_op
+
+    # Compute Jacobian with blended operators
+    jac_xx = uv_diag["u"] @ jac_operators["Ax"] \
+          + uv_diag["v"] @ jac_operators["Ay"] \
+          + self.ops["D"]
+
+    jac_uu = ops.sp_diag(adv_act["x"]["u"]) + jac_xx
+    jac_uv = ops.sp_diag(adv_act["y"]["u"])
+    jac_vu = ops.sp_diag(adv_act["x"]["v"])
+    jac_vv = ops.sp_diag(adv_act["y"]["v"]) + jac_xx
+    jac = sp.bmat(
+      [[jac_uu, jac_uv],
+       [jac_vu, jac_vv]],
+      format="csr"
+    )
+    return res, jac
 
 class Poisson2D(object):
   """
