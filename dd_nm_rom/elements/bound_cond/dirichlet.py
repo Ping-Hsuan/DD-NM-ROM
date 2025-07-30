@@ -72,7 +72,6 @@ class DirichletBC(object):
           method=method
         )
       self.f[k] = {"D": self._compose_dif_src(f_k)}
-      print(self.advection)
       if self.advection:
         self.f[k]["A"] = self._compose_adv_src(f_k)
     if self.update_built:
