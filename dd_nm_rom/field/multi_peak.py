@@ -60,8 +60,10 @@ class MultiPeak(BasicField):
         config += self.forced_config
         config = config.astype(bool).astype(int)
       s = np.sum(config)
-    mu = config * np.random.uniform(*self.mu_lim, size=self.mesh.n_sub)
-    return mu
+    mu_u = config * np.random.uniform(*self.mu_lim, size=self.mesh.n_sub)
+    mu_v = config * np.random.uniform(*self.mu_lim, size=self.mesh.n_sub)
+
+    return np.concatenate([mu_u, mu_v])
 
   def construct_design_mat(
     self,
