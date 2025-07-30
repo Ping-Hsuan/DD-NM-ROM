@@ -31,6 +31,17 @@ class SinMultiPeak(BasicField):
   # Design space
   # ===================================
   def _init_design_space(self) -> None:
+    """
+    2D array of shape (2, n_params) defining the lower and upper bounds for sampling input parameters.
+
+    - The first parameter is a configuration index in [0, len(self.configs)), which selects a binary activation pattern for subdomains.
+    - The remaining parameters are amplitude values mu_i for each subdomain, sampled uniformly from self.mu_lim = [mu_min, mu_max].
+    - Only subdomains activated in the selected configuration will use their mu_i value; others are set to zero.
+
+    The structure is:
+        design_space[0, :] -> lower bounds
+        design_space[1, :] -> upper bounds
+    """
     # Define possible combinations
     self.configs = ops.generate_combs([np.arange(2)]*self.mesh.n_sub)[1:]
     if (self.forced_config is not None):
@@ -56,6 +67,27 @@ class SinMultiPeak(BasicField):
     self,
     n_samples: int
   ) -> np.ndarray:
+    """
+    Generate a design matrix of parameter vectors using Latin Hypercube Sampling (LHS),
+    and apply subdomain activation masking based on predefined configurations.
+
+    This method performs the following:
+      1. Samples `n_samples` points from the continuous design space using LHS.
+         - The first entry of each sample is a float in [0, len(self.configs)),
+           interpreted as a configuration index.
+         - The remaining entries are raw amplitude values μ_i ∈ [μ_min, μ_max]
+           for each subdomain.
+      2. Rounds down the configuration index to an integer to select a binary mask
+         from `self.configs`.
+      3. Applies the mask to zero out inactive μ_i entries.
+
+    Args:
+        n_samples (int): Number of parameter vectors to generate.
+
+    Returns:
+        np.ndarray: A (n_samples × n_sub) array of masked amplitude vectors, where
+        each row represents a sample with μ_i values only in the active subdomains.
+    """
     dmat = super(SinMultiPeak, self).construct_design_mat(n_samples)
     return self._convert_dmat_to_mu(dmat)
 
