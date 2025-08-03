@@ -1,6 +1,7 @@
 import numpy as np
 import scipy.sparse as sp
 
+
 from time import time
 from dd_nm_rom import ops, solvers
 from dd_nm_rom import field as field_mod
@@ -222,7 +223,6 @@ class Burgers2D(object):
     uv, uv_diag = self.extract_uv(x, diag=True)
     # Action of advection operator on vectors
     adv_act = {}
-
     for axis in ("x", "y"):
       # Determine which velocity component to check
       vel_component = "u" if axis == "x" else "v"
@@ -238,10 +238,14 @@ class Burgers2D(object):
         pos_result = self.ops[f"A{axis}_pos"] @ uv[k]
         neg_result = self.ops[f"A{axis}_neg"] @ uv[k]
 
-        # Combine results based on velocity direction
-        result = np.zeros_like(pos_result)
-        result[pos_mask] = pos_result[pos_mask]
-        result[neg_mask] = neg_result[neg_mask]
+        if np.all(pos_mask):
+            result = pos_result
+        elif np.all(neg_mask):
+            result = neg_result
+        else:
+            result = np.zeros_like(pos_result)
+            result[pos_mask] = pos_result[pos_mask]
+            result[neg_mask] = neg_result[neg_mask]
 
         # Apply boundary condition adjustments
         adv_act[axis][k] = result - self.bc_f[k]["A"][axis]
@@ -260,20 +264,20 @@ class Burgers2D(object):
     for axis in ("x", "y"):
       vel_component = "u" if axis == "x" else "v"
       vel = uv[vel_component]
-      pos_mask = (vel >= 0)
-      neg_mask = (vel < 0)
+      pos_mask = (vel >= 0).astype(float)
+      neg_mask = 1-pos_mask #(vel < 0)
 
-      # Create a copy of the positive operator
-      blended_op = self.ops[f"A{axis}_pos"].copy()
+      # Diagonal selection matrices
+      P = sp.diags(pos_mask)  # shape (n, n)
+      N = sp.diags(neg_mask)  # shape (n, n)
 
-      # Replace rows where velocity is negative
-      if neg_mask.any():
-        neg_indices = np.where(neg_mask)[0]
-        Ax_neg = self.ops[f"A{axis}_neg"]
-        for i in neg_indices:
-          blended_op[i] = Ax_neg[i]
+      A_pos = self.ops[f"A{axis}_pos"]
+      A_neg = self.ops[f"A{axis}_neg"]
 
-      jac_operators[f"A{axis}"] = blended_op
+      # Efficient blending
+      A_blend = P @ A_pos + N @ A_neg
+
+      jac_operators[f"A{axis}"] = A_blend
 
     # Compute Jacobian with blended operators
     jac_xx = uv_diag["u"] @ jac_operators["Ax"] \

@@ -135,9 +135,13 @@ class MultiPeak(BasicField):
 
   def _phi(self, x: np.ndarray, y: np.ndarray, mu: float, field: str = "u") -> np.ndarray:
     if field == "u":
-        return np.abs(mu * np.sin(2 * np.pi * x) * np.sin(2 * np.pi * y))
+#       return np.abs(mu * np.sin(2 * np.pi * x) * np.sin(2 * np.pi * y))
+#       return (mu * np.sin(2 * np.pi * x) * np.sin(2 * np.pi * y))
+        return (mu * np.sin(2 * np.pi * x) * np.sin(2 * np.pi * y))
     elif field == "v":
-        return np.abs(mu * np.cos(2 * np.pi * x) * np.sin(2 * np.pi * y))
+#       return np.abs(mu * np.cos(2 * np.pi * x) * np.sin(2 * np.pi * y))
+#       return (mu * np.sin(2 * np.pi * x) * np.sin(2 * np.pi * y))
+        return (mu * np.sin(2 * np.pi * x) * np.sin(2 * np.pi * y))
 #       return np.abs(mu * np.sin(2 * np.pi * x) * np.sin(2 * np.pi * y))
     else:
         raise ValueError(f"Unknown field type: {field}")

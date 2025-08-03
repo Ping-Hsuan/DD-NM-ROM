@@ -61,6 +61,7 @@ class DiffOperators(object):
           return self.build_upwind_1st()
       else:
           return self.build_upwind_2nd_gen()
+#         return self.build_upwind_2nd()
 
     self.ops = {"D": 0.0}
     for axis in ("x", "y"):
@@ -206,21 +207,26 @@ class DiffOperators(object):
 
           # Second-order backward difference for first derivative (for positive flow)
           # Formula: (3f_i - 4f_{i-1} + f_{i-2})/(2h)
-          pos_stencil = [1, -4, 3, 0]  # Coefficients for points i-2, i-1, i, i+1
-          pos_diags = [-2, -1, 0, 1]   # Diagonal positions
+#         pos_stencil = [1, -4, 3, 0]  # Coefficients for points i-2, i-1, i, i+1
+#         pos_diags = [-2, -1, 0, 1]   # Diagonal positions
+          pos_stencil = [1, -4, 3]  # Coefficients for points i-2, i-1, i, i+1
+          pos_diags = [-2, -1, 0]   # Diagonal positions
 #         Ai = self._build_extended_op(axis, upwind_stencil, upwind_diags)
           pos_op = self._build_extended_op_gen(axis, pos_stencil, pos_diags, flow_dir="pos")
 
           # Build negative flow operator (forward differencing)
-          neg_stencil = [0, 3, -4, 1]  # [i-1, i, i+1, i+2]
-          neg_diags = [-1, 0, 1, 2]
+          neg_stencil = [-1, 4, -3]  # f_{i+2}, f_{i+1}, f_i
+          neg_diags = [2, 1, 0]
+#         neg_stencil = [0, 3, -4, 1]  # [i-1, i, i+1, i+2]
+#         neg_diags = [-1, 0, 1, 2]
           neg_op = self._build_extended_op_gen(axis, neg_stencil, neg_diags, flow_dir="neg")
 
           self.ops[f"A{axis}_pos"] = (-1.0/(2*h)) * pos_op
           self.ops[f"A{axis}_neg"] = (-1.0/(2*h)) * neg_op
 
           # For backward compatibility, default to positive flow
-          self.ops[f"A{axis}"] = self.ops[f"A{axis}_pos"]
+#         self.ops[f"A{axis}"] = self.ops[f"A{axis}_pos"]
+          self.ops[f"A{axis}"] = self.ops[f"A{axis}_neg"]
 
           # Standard second-order central for diffusion
           Di = self._build_op(axis, stencil=[1, -2, 1], diags=[-1, 0, 1])
@@ -266,9 +272,12 @@ class DiffOperators(object):
             # We need to connect:
             # - Point n-1 needs data from points 0 and 1
             # - Point n-2 needs data from point 0
-            op[n[axis]-1, 0] = stencil[3]  # Connect point n-1 to point 0
-            op[n[axis]-1, 1] = stencil[2]  # Connect point n-1 to point 1
-            op[n[axis]-2, 0] = stencil[3]  # Connect point n-2 to point 0
+#           op[n[axis]-1, 0] = stencil[3]  # Connect point n-1 to point 0
+#           op[n[axis]-1, 1] = stencil[2]  # Connect point n-1 to point 1
+#           op[n[axis]-2, 0] = stencil[3]  # Connect point n-2 to point 0
+            op[n[axis]-2, 0] = stencil[0]  # f_{i+2} = f_0 for i = n-2
+            op[n[axis]-1, 0] = stencil[1]  # f_{i+1} = f_0 for i = n-1
+            op[n[axis]-1, 1] = stencil[0]  # f_{i+2} = f_1 for i = n-1
 
       elif self.bc.op is not None:
           # For non-periodic boundaries, apply standard BC handling
