@@ -29,7 +29,7 @@ class Subdomain(object):
   ) -> None:
     self.identifier = identifier
     self.monolithic = monolithic
-    for k in ("ops_names", "mesh"):
+    for k in ("ops_names", "mesh", "compact"):
       setattr(self, k, getattr(self.monolithic, k))
     self.nodes_ind = nodes_ind
     self.cmat = cmat
@@ -112,8 +112,12 @@ class Subdomain(object):
     force: dtypes.UV_TYPE = None,
     class_name: str = None
   ) -> dtypes.RES_JAC_TYPE:
-    # Precompute actions of operators
-    ops_uv = self.action_ops(uv, elem_states)
+
+    if self.compact:
+      ops_uv = self.action_ops_gen(uv, elem_states)
+    else:
+      # Precompute actions of operators
+      ops_uv = self.action_ops(uv, elem_states)
     # Residual and Jacobian
     res = self.compute_res(uv, elem_states, ops_uv, steady, dt, uv_old, force, class_name)
     jac = self.compute_jac(uv, elem_states, ops_uv, steady, dt, jac_fun, class_name)
@@ -136,6 +140,50 @@ class Subdomain(object):
           op_v = op_v + op_i @ uv[e_k][x_k]
         ops_uv[x_k][op_k] = op_v
     return ops_uv
+
+  def action_ops_gen(
+    self,
+    uv: dtypes.UV_TYPE,
+    elem_states: Dict[str, callable]
+) -> dtypes.UV_TYPE:
+    ops_uv = {}
+    for x_k in ("u", "v"):
+        ops_uv[x_k] = {}
+        for op_k in self.ops_names:
+            op_v = 0.0
+            for e_k in ("interior", "interface"):
+                # Retrieve the operator from the element state
+                op_i = elem_states[e_k].ops[op_k]
+
+                if op_k in ("Ax", "Ay") and (
+                    f"{op_k}_pos" in elem_states[e_k].ops and f"{op_k}_neg" in elem_states[e_k].ops
+                ):
+                    # Choose velocity field for this axis
+                    vel_field = "u" if op_k == "Ax" else "v"
+                    vel = uv["res"][vel_field]
+
+                    pos_mask = (vel >= 0).astype(float)
+                    neg_mask = 1-pos_mask #(vel < 0)
+                    P = sp.diags(pos_mask)  # shape (n, n)
+                    N = sp.diags(neg_mask)  # shape (n, n)
+
+                    A_pos = elem_states[e_k].ops[f"{op_k}_pos"]
+                    A_neg = elem_states[e_k].ops[f"{op_k}_neg"]
+
+                    A_blend = P @ A_pos + N @ A_neg
+
+                    op_v += A_blend @ uv[e_k][x_k]
+
+                elif op_k not in ("Ax_pos", "Ax_neg", "Ay_pos", "Ay_neg"):
+                    # Standard case
+                    if isinstance(op_i, dict):
+                        op_i = op_i[x_k]
+                    op_v += op_i @ uv[e_k][x_k]
+
+            ops_uv[x_k][op_k] = op_v
+
+    return ops_uv
+
 
   def compute_res(
     self,
@@ -234,8 +282,22 @@ class Subdomain(object):
       jac_vu = ops.sp_diag(ops_uv["v"]["Ax"] - bc_f["v"]["A"]["x"])
       jac_vv = ops.sp_diag(ops_uv["v"]["Ay"] - bc_f["v"]["A"]["y"])
       uv_diag = ops.map_nested_dict(uv["res"], ops.sp_diag)
+
       for e_k in ("interior", "interface"):
         state_k = elem_states[e_k]
+        # --- Blend compact upwind operators based on local velocity ---
+        for op_k, vel_field in zip(("Ax", "Ay"), ("u", "v")):
+            vel = uv["res"][vel_field]
+            pos_mask = (vel >= 0).astype(float)
+            neg_mask = 1.0 - pos_mask
+            P = sp.diags(pos_mask)
+            N = sp.diags(neg_mask)
+
+            A_pos = state_k.ops[f"{op_k}_pos"]
+            A_neg = state_k.ops[f"{op_k}_neg"]
+            A_blend = P @ A_pos + N @ A_neg
+            state_k.ops[op_k] = A_blend  # overwrite the value in keys Ax and Ay
+
         jac_xx_k = uv_diag["u"] @ state_k.ops["Ax"] \
                 + uv_diag["v"] @ state_k.ops["Ay"] \
                 + state_k.ops["D"]

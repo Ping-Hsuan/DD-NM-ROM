@@ -30,7 +30,7 @@ class DDBurgers2D(object):
     # FOM monolithic
     # -------------
     self.monolithic = monolithic
-    for k in ("runtime", "mesh"):
+    for k in ("runtime", "mesh", "compact"):
       setattr(self, k, getattr(self.monolithic, k))
     if (self.mesh.name != "MeshDD"):
       raise ValueError(
