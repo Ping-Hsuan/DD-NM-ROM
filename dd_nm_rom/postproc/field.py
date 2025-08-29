@@ -54,13 +54,24 @@ def plot_field_fom_rom(
   uv_rom: Union[dd_mod.dtypes.UV_TYPE, None] = None,
   index: Union[int, None] = None,
   figsize: Union[Tuple[int], None] = None,
-  show_labels: bool = True
+  show_labels: bool = True,
+  use_fom_snapshot_limits: bool = False
 ) -> None:
   for x_k in ("u", "v"):
     path_k = path + f"/{x_k}/"
     os.makedirs(path_k, exist_ok=True)
+
     zt = uv_fom["res"][x_k]
-    lim = [zt.min(), zt.max()]
+
+    # --- State limits ---
+    if use_fom_snapshot_limits and index is not None:
+      # scale to FOM at this index
+      zt_snap = zt.T[index]
+      lim = [zt_snap.min(), zt_snap.max()]
+    else:
+      # original: global min/max over all snapshots
+      lim = [zt.min(), zt.max()]
+
     if (uv_rom is not None):
       z = uv_rom["res"][x_k]
       label = "$\hat{%s}$" % x_k
