@@ -97,7 +97,7 @@ class DD_LS_ROM(object):
         self.subdomains[-1].set_hr_mode(active=True)
     # Interpolator
     # -------------
-    self.rbf_model = RBFModel(self.subdomains, self.n_constraints)
+    self.rbf_model = RBFModel(self.subdomains, self.n_constraints, self.dd_fom)
     # Integration
     # -------------
     self.steady = True
