@@ -118,10 +118,10 @@ class Model(object):
       # Test step
       with torch.set_grad_enabled(False):
         self.evaluate()
-      # Update lr
-      self.update_lr()
       # On epoch end calls
       self.train_state.on_epoch_end()
+      # Update lr
+      self.update_lr()
       self.callbacks.on_epoch_end()
       self.train_state.epoch += 1
       if self.stop_training:
