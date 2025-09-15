@@ -285,18 +285,22 @@ class Subdomain(object):
 
       for e_k in ("interior", "interface"):
         state_k = elem_states[e_k]
-        # --- Blend compact upwind operators based on local velocity ---
-        for op_k, vel_field in zip(("Ax", "Ay"), ("u", "v")):
-            vel = uv["res"][vel_field]
-            pos_mask = (vel >= 0).astype(float)
-            neg_mask = 1.0 - pos_mask
-            P = sp.diags(pos_mask)
-            N = sp.diags(neg_mask)
+        # Should be separate out as an individual function
+        if self.compact:
+          # --- Blend compact upwind operators based on local velocity ---
+          for op_k, vel_field in zip(("Ax", "Ay"), ("u", "v")):
+              vel = uv["res"][vel_field]
+              pos_mask = (vel >= 0).astype(float)
+              neg_mask = 1.0 - pos_mask
+              P = sp.diags(pos_mask)
+              N = sp.diags(neg_mask)
 
-            A_pos = state_k.ops[f"{op_k}_pos"]
-            A_neg = state_k.ops[f"{op_k}_neg"]
-            A_blend = P @ A_pos + N @ A_neg
-            state_k.ops[op_k] = A_blend  # overwrite the value in keys Ax and Ay
+              A_pos = state_k.ops[f"{op_k}_pos"]
+              A_neg = state_k.ops[f"{op_k}_neg"]
+              A_blend = P @ A_pos + N @ A_neg
+              state_k.ops[op_k] = A_blend  # overwrite the value in keys Ax and Ay
+        else:
+          continue
 
         jac_xx_k = uv_diag["u"] @ state_k.ops["Ax"] \
                 + uv_diag["v"] @ state_k.ops["Ay"] \
