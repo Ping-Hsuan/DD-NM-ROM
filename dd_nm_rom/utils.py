@@ -171,7 +171,8 @@ def generate_case_parallel(
   n_samples: int,
   n_workers: int = 1,
   desc: str = "> Cases",
-  verbose: bool = True
+  verbose: bool = True,
+  indices: Union[List[int], None] = None,
 ) -> None:
 
   """
@@ -202,12 +203,14 @@ def generate_case_parallel(
   indices and collects convergence results. If `verbose` is True, it prints 
   the total number of converged cases.
   """
-  iterable = tqdm(
-    iterable=range(n_samples),
-    ncols=80,
-    desc=desc,
-    file=sys.stdout
-  )
+  iterable_indices = list(range(n_samples)) if indices is None else list(indices)
+  iterable = tqdm(iterable=iterable_indices, ncols=80, desc=desc, file=sys.stdout)
+# iterable = tqdm(
+#   iterable=range(n_samples),
+#   ncols=80,
+#   desc=desc,
+#   file=sys.stdout
+# )
   if (n_workers > 1):
     converged = jl.Parallel(n_workers)(
       jl.delayed(sol_fun)(i) for i in iterable
@@ -215,4 +218,5 @@ def generate_case_parallel(
   else:
     converged = [sol_fun(i) for i in iterable]
   if verbose:
-    print(f"> Total converged cases: {sum(converged)}/{n_samples}")
+#   print(f"> Total converged cases: {sum(converged)}/{n_samples}")
+    print(f"> Total converged cases: {sum(converged)}/{len(iterable_indices)}")
