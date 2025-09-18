@@ -501,3 +501,92 @@ class DD_NM_ROM(object):
     if scaling:
       err *= self.mesh.hxy
     return np.amax(np.sqrt(err/self.mesh.n_sub))
+
+  def compute_error_new(
+    self,
+    uv_fom,
+    uv_rom,
+    scaling=False,
+    relative=True,
+    axis=0,
+    return_dict=True,
+    rel_eps=1e-6,
+  ):
+    """
+    Compute error between DD-ROM and DD-FOM DD solutions.
+
+    Default return (return_dict=False):
+      - float: L2_timemax  (same as your original function)
+
+    If return_dict=True:
+      - dict with:
+          "L2_timemax"   : max-in-time L2 error (matches your original)
+          "Linf_timeavg" : time-averaged spatial L-infinity error
+    """
+
+    err = 0.0
+
+    linf_err_t = None
+    linf_fom_t = None
+    fom_global_sup = 0.0
+
+    for s in range(self.mesh.n_sub):
+        num_s, den_s = 0.0, 0.0  # per-subdomain accumulators (vectors over time)
+        for e_k in ("interior", "interface"):
+            for x_k in ("u", "v"):
+                x_fom = uv_fom[e_k][x_k][s]
+                x_rom = uv_rom[e_k][x_k][s]
+
+                # ---- L2 contributions (sum over space, keep time) ----
+                num_s += np.sum((x_rom - x_fom) ** 2, axis=axis)
+                if relative:
+                    den_s += np.sum((x_fom) ** 2, axis=axis)
+
+                # ---- Linf contribution for this component (max over space, keep time) ----
+                e_sup = np.max(np.abs(x_rom - x_fom), axis=axis)
+                f_sup = np.max(np.abs(x_fom),     axis=axis)
+
+                if linf_err_t is None:
+                    linf_err_t = e_sup.astype(float, copy=True)
+                    linf_fom_t = f_sup.astype(float, copy=True)
+                else:
+                    linf_err_t = np.maximum(linf_err_t, e_sup)
+                    linf_fom_t = np.maximum(linf_fom_t, f_sup)
+
+                fom_global_sup = max(fom_global_sup, float(np.max(f_sup)))
+
+        # accumulate L2 across subdomains
+        err += (num_s / np.maximum(den_s, 1e-30)) if relative else num_s
+
+    # Apply area scaling to L2
+    if scaling:
+        err *= self.mesh.hxy
+
+    L2_t = np.sqrt(err / self.mesh.n_sub)
+
+    # Linf-L2 metric
+    L2_timemax = float(np.amax(L2_t))
+    if not return_dict:
+        return L2_timemax
+    # L2-L2 metric
+    L2_timeavg   = float(np.mean(L2_t))
+
+    if relative:
+        eps = max(1e-12, rel_eps * max(1.0, fom_global_sup))
+        denom = np.maximum(linf_fom_t, eps)
+        linf_t = linf_err_t / denom
+    else:
+        linf_t = linf_err_t
+
+    # L2-Linf metric
+    Linf_timeavg = float(np.mean(linf_t))
+    # Linf-Linf
+    Linf_timemax  = float(np.max(linf_t))
+
+
+    return {
+        "L2_timemax": L2_timemax,
+        "L2_timeavg": L2_timeavg,
+        "Linf_timeavg": Linf_timeavg,
+        "Linf_timemax": Linf_timemax,
+    }
