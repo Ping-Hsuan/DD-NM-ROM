@@ -39,7 +39,7 @@ def generate_mask(
 
 # Activation function
 # =====================================
-_ACT_IDS = ("elu", "linear", "sigmoid", "swish")
+_ACT_IDS = ("elu", "linear", "sigmoid", "swish", "softplus")
 
 def get_activation(identifier="sigmoid", *args, **kwargs):
   if (isinstance(identifier, str) and (identifier.lower() in _ACT_IDS)):
@@ -47,7 +47,8 @@ def get_activation(identifier="sigmoid", *args, **kwargs):
       "elu":     torch.nn.ELU,
       "linear":  Linear,
       "sigmoid": torch.nn.Sigmoid,
-      "swish":   Swish
+      "swish":   Swish,
+      "softplus": torch.nn.Softplus
     }[identifier.lower()](*args, **kwargs)
   elif callable(identifier):
     if inspect.isclass(identifier):

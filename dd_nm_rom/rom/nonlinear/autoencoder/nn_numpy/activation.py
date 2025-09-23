@@ -5,7 +5,7 @@ import numpy as np
 from dd_nm_rom.ops import sp_diag
 
 
-_ACT_IDS = ("elu", "linear", "mixed", "relu", "sigmoid", "swish")
+_ACT_IDS = ("elu", "linear", "mixed", "relu", "sigmoid", "swish", "softplus")
 
 def get(identifier='sigmoid', *args, **kwargs):
   if (isinstance(identifier, str) and (identifier.lower() in _ACT_IDS)):
@@ -15,7 +15,8 @@ def get(identifier='sigmoid', *args, **kwargs):
       "mixed":   Mixed,
       "relu":    ReLU,
       "sigmoid": Sigmoid,
-      "swish":   Swish
+      "swish":   Swish,
+      "softplus": Softplus
     }[identifier.lower()](*args, **kwargs)
   else:
     raise ValueError(
@@ -123,3 +124,21 @@ class Mixed(BaseAct):
     for (act, mask) in self.masks.values():
       y[mask] = act._jac(x[mask])
     return y
+
+# Softplus
+# -------------------------------------
+class Softplus(BaseAct):
+  """
+  Softplus: f(x) = log(1 + exp(x))
+  Jacobian (elementwise): f'(x) = 1 / (1 + exp(-x))  == sigmoid(x)
+  Uses stable formulas to avoid overflow/underflow.
+  """
+
+  def _fun(self, x):
+    # Stable: log(1+exp(x)) = max(x,0) + log1p(exp(-|x|))
+    return np.maximum(x, 0) + np.log1p(np.exp(-np.abs(x)))
+
+  def _jac(self, x):
+    # f'(x) = sigmoid(x). Stable form using tanh to avoid overflow in exp(+_x)
+    # sigmoid(x) = 0.5 * (1 + tanh(x/2))
+    return 0.5 * (1.0 + np.tanh(0.5 * x))
