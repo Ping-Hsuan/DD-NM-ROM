@@ -37,6 +37,35 @@ def generate_mask(
   return mask, hidden_dim
 
 
+def generate_mask2(
+    output_dim,
+    input_dim,
+    row_shift,
+    row_nonzero
+):
+  """
+  Generates a sparsity mask for decoder with specified input and output dimensions.
+  Each output neuron is connected to a block of `row_nonzero` input neurons
+  """
+  # Gradually shift block so every output neuron has valid, evenly distributed connections
+  row, col = [], []
+  block_size = row_nonzero if row_nonzero > 0 else 1
+  max_start = input_dim - block_size
+  for i in range(output_dim):
+    if output_dim == 1:
+      start = 0
+    else:
+      start = int(round(i * max_start / (output_dim - 1))) if max_start > 0 else 0
+    end = start + block_size
+    cols = np.arange(start, end)
+    row.append(np.full(cols.shape, i, dtype=np.int32))
+    col.append(cols)
+  row = np.concatenate(row, dtype=np.int32)
+  col = np.concatenate(col, dtype=np.int32)
+  data = np.ones(row.size, dtype=np.int32)
+  mask = sp.coo_matrix((data, (row, col)), shape=(output_dim, input_dim))
+  return mask
+
 # Activation function
 # =====================================
 _ACT_IDS = ("elu", "linear", "sigmoid", "swish", "softplus")
