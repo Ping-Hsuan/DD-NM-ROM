@@ -135,10 +135,10 @@ class Softplus(BaseAct):
   """
 
   def _fun(self, x):
-    # Stable: log(1+exp(x)) = max(x,0) + log1p(exp(-|x|))
-    return np.maximum(x, 0) + np.log1p(np.exp(-np.abs(x)))
+    # Stable: log(1+exp(x)) = max(x,0) + log1p(exp(-|x|)) with minimal temporaries
+    absx = np.abs(x)
+    return np.where(x > 0, x + np.log1p(np.exp(-absx)), np.log1p(np.exp(-absx)))
 
   def _jac(self, x):
-    # f'(x) = sigmoid(x). Stable form using tanh to avoid overflow in exp(+_x)
-    # sigmoid(x) = 0.5 * (1 + tanh(x/2))
-    return 0.5 * (1.0 + np.tanh(0.5 * x))
+    # f'(x) = sigmoid(x); use tanh formulation for stability
+    return 0.5 * (1.0 + np.tanh(0.5 * x))    
