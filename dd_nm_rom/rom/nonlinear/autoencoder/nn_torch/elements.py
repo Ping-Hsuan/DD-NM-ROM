@@ -66,6 +66,82 @@ def generate_mask2(
   mask = sp.coo_matrix((data, (row, col)), shape=(output_dim, input_dim))
   return mask
 
+
+def generate_mask3(
+    output_dim,
+    input_dim,
+    row_shift,
+    row_nonzero
+):
+  """
+  Generates a sparsity mask for decoder with specified input and output dimensions.
+  Mimics the three-block (backward, base, forward) connectivity pattern used in
+  `generate_mask`, but bounded by the provided `input_dim` instead of an internally
+  computed hidden dimension.
+
+  For each output row i:
+    base block:      cols = i*row_shift + [0, 1, ..., row_nonzero-1]
+    forward block:   cols + row_shift*row_nonzero (if within input_dim)
+    backward block:  cols - row_shift*row_nonzero (if within input_dim)
+
+  Duplicate (overlapping) indices are automatically consolidated by the COO
+  constructor if they occur (e.g., when row_shift == 0).
+  """
+  if row_nonzero <= 0:
+    raise ValueError("row_nonzero must be positive")
+  if row_shift < 0:
+    raise ValueError("row_shift must be non-negative")
+
+  # Precompute base pattern indices (size row_nonzero)
+  base_indices = np.arange(row_nonzero, dtype=np.int32)
+  one_row = np.ones(row_nonzero, dtype=np.int32)
+
+  # Start-index distribution logic: spread starting positions across input range
+  block_size = row_nonzero
+  max_start = input_dim - block_size
+
+  rows = []
+  cols = []
+
+  shift_block = row_shift * row_nonzero  # distance to forward/backward block
+
+  for i in range(output_dim):
+    if output_dim == 1:
+      start = 0
+    else:
+      start = int(round(i * max_start / (output_dim - 1))) if max_start > 0 else 0
+    base_cols = start + base_indices
+    # Filter base within bounds
+    valid = (base_cols >= 0) & (base_cols < input_dim)
+    if valid.any():
+      rows.append(i * one_row[valid])
+      cols.append(base_cols[valid])
+
+    if shift_block > 0:
+      # Forward block
+      fwd_cols = base_cols + shift_block
+      valid_f = (fwd_cols >= 0) & (fwd_cols < input_dim)
+      if valid_f.any():
+        rows.append(i * one_row[valid_f])
+        cols.append(fwd_cols[valid_f])
+      # Backward block
+      bwd_cols = base_cols - shift_block
+      valid_b = (bwd_cols >= 0) & (bwd_cols < input_dim)
+      if valid_b.any():
+        rows.append(i * one_row[valid_b])
+        cols.append(bwd_cols[valid_b])
+
+  if not rows:
+    # No valid connections; return empty mask
+    return sp.coo_matrix((output_dim, input_dim), dtype=np.int32)
+
+  row = np.concatenate(rows, dtype=np.int32)
+  col = np.concatenate(cols, dtype=np.int32)
+  data = np.ones(row.size, dtype=np.int32)
+  mask = sp.coo_matrix((data, (row, col)), shape=(output_dim, input_dim), dtype=np.int32)
+  return mask
+
+
 # Activation function
 # =====================================
 _ACT_IDS = ("elu", "linear", "sigmoid", "swish", "softplus")
