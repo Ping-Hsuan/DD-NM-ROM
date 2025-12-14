@@ -144,7 +144,7 @@ class Solver(object):
         steps = [[] for _ in step]
       for (j, obj) in enumerate(step):
         steps[j].append(obj)
-      if (flag != 0):
+      if (flag != 0) and (flag != 1) and (flag != 4):
         break
       self.model.runtime["total"] += time()-start
       if self.verbose:
@@ -340,6 +340,12 @@ class Solver(object):
         f"Solver failed to converge in {self.maxit} iterations. " \
         "The solver did not reach the desired tolerance " \
         "within the maximum number of iterations."
+      )
+    elif (flag == 4):
+      print(
+        f"Residual plateaued at iteration {it}. " \
+        "Relative improvement < 0.001% over the past 5 consecutive iterations. " \
+        "Continuing with current solution."
       )
     else:
       if self.verbose:

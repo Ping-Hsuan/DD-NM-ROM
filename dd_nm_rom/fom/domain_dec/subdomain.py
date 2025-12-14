@@ -299,8 +299,6 @@ class Subdomain(object):
               A_neg = state_k.ops[f"{op_k}_neg"]
               A_blend = P @ A_pos + N @ A_neg
               state_k.ops[op_k] = A_blend  # overwrite the value in keys Ax and Ay
-        else:
-          continue
 
         jac_xx_k = uv_diag["u"] @ state_k.ops["Ax"] \
                 + uv_diag["v"] @ state_k.ops["Ay"] \
