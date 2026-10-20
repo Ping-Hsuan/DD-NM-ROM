@@ -4,6 +4,8 @@ from dd_nm_rom import ops, utils
 
 
 def load_nn_configfiles(mesh, dd_fom, path_to_nets):
+  # mesh provides the number of subdomains
+  # dd_fom provides domain decomposition indices
   nn_configfiles = {}
   for (element, path_to_net) in path_to_nets.items():
     utils.check_path(path_to_net)
@@ -18,7 +20,7 @@ def load_nn_configfiles(mesh, dd_fom, path_to_nets):
               filename = file.path + "/refine/"
               if (not os.path.exists(filename)):
                 filename = file.path + "/scratch/"
-              if (size == 1):
+              if ((size == 1) or (size == 2)):
                 filename += "/saving/model_last_numpy.p"
               else:
                 filename += "/training/ckpt/model_best_numpy.p"
