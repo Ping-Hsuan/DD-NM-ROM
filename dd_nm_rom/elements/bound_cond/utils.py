@@ -7,7 +7,7 @@ SIDES = {
   "y": ("bottom", "top")
 }
 SIDES["all"] = SIDES["x"] + SIDES["y"]
-TYPES = ("dirichlet", "neumann", "periodic")
+TYPES = ("dirichlet", "neumann", "periodic", "mixed")
 
 def check_bc_type(bc_type: str) -> None:
   """
