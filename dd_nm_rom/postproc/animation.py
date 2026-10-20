@@ -18,7 +18,8 @@ def _create_animation(
   lim: List[float],
   label: str,
   frames: int,
-  show_labels: bool
+  show_labels: bool,
+  dynamic_range: bool = False
 ) -> FuncAnimation:
   # Initialize a figure in which the graphs will be plotted
   fig, ax = plt.subplots()
@@ -44,6 +45,12 @@ def _create_animation(
   def _animate(frame):
     # Set data
     data[0].set_array(z[frame+1])
+    # Update color range for each frame if dynamic_range is True
+    if dynamic_range:
+      frame_min = z[frame+1].min()
+      frame_max = z[frame+1].max()
+      data[0].set_clim(vmin=frame_min, vmax=frame_max)
+      cbar.update_normal(data[0])
     # Rescale axis limits
     ax.relim()
     ax.autoscale_view(tight=True)
@@ -69,12 +76,13 @@ def animate(
   fps: int = 10,
   filename: str = "./state.gif",
   dpi: int = 600,
-  save: bool = True
+  save: bool = True,
+  dynamic_range: bool = False
 ) -> FuncAnimation:
   if (frames is None):
     frames = len(z)
   # Create animation
-  anim = _create_animation(x, y, z, lim, label, frames, show_labels)
+  anim = _create_animation(x, y, z, lim, label, frames, show_labels, dynamic_range)
   # Save animation
   if save:
     anim.save(filename, writer="imagemagick", fps=fps, dpi=dpi)
@@ -85,7 +93,8 @@ def animate_fom_rom(
   mesh: mesh_mod.MESH_TYPES,
   uv_fom: dd_mod.dtypes.UV_TYPE,
   uv_rom: Union[dd_mod.dtypes.UV_TYPE, None] = None,
-  show_labels: bool = True
+  show_labels: bool = True,
+  dynamic_range: bool = True
 ) -> None:
   for x_k in ("u", "v"):
     path_k = path + f"/{x_k}/"
@@ -111,7 +120,8 @@ def animate_fom_rom(
       show_labels=show_labels,
       filename=path_k + "/state.gif",
       dpi=300,
-      save=True
+      save=True,
+      dynamic_range=dynamic_range
     )
     # Error
     if (err is not None):
@@ -125,5 +135,6 @@ def animate_fom_rom(
         show_labels=show_labels,
         filename=path_k + "/state_err.gif",
         dpi=300,
-        save=True
+        save=True,
+        dynamic_range=False
       )

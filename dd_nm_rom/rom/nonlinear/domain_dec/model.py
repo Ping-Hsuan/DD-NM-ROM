@@ -486,18 +486,130 @@ class DD_NM_ROM(object):
   ):
     """
     Compute error between DD-ROM and DD-FOM DD solutions.
+
+    relative=True computes ONE pooled relative L2 error over the whole
+    domain (sum of all subdomains' squared differences / sum of all
+    subdomains' squared FOM norms), not an average of per-subdomain
+    ratios. The per-subdomain-ratio-then-average version used previously
+    is fragile to any subdomain with a near-zero reference norm (e.g. one
+    masked off at t=0 by a field's IC on/off mask): even a tiny, harmless
+    ROM reconstruction residual there (never exactly zero for a learned
+    NM-ROM decoder) gets divided by a near-zero denominator and can
+    dominate the whole metric with a spurious, arbitrarily large value.
+    Pooling numerator and denominator globally before dividing avoids this
+    entirely -- a handful of near-zero-reference subdomains are swamped by
+    the rest of the domain's real signal, exactly like a standard global
+    relative L2 error.
     """
-    err = 0.0
+    num, den = 0.0, 0.0
     for s in range(self.mesh.n_sub):
-      num_s, den_s = 0.0, 0.0
       for e_k in ("interior", "interface"):
         for x_k in ("u", "v"):
           x_fom = uv_fom[e_k][x_k][s]
           x_rom = uv_rom[e_k][x_k][s]
-          num_s += np.sum(np.square(x_rom - x_fom), axis=axis)
+          num += np.sum(np.square(x_rom - x_fom), axis=axis)
           if relative:
-            den_s += np.sum(np.square(x_fom), axis=axis)
-      err += num_s/den_s if relative else num_s
+            den += np.sum(np.square(x_fom), axis=axis)
     if scaling:
-      err *= self.mesh.hxy
-    return np.amax(np.sqrt(err/self.mesh.n_sub))
+      num *= self.mesh.hxy
+      if relative:
+        den *= self.mesh.hxy
+    err = num/den if relative else num
+    return np.amax(np.sqrt(err))
+
+  def compute_error_timeavg(
+    self,
+    uv_fom,
+    uv_rom,
+    scaling=False,
+    relative=True,
+    axis=None
+  ):
+    """
+    Same as compute_error (identical pooled-relative-L2 formula), but
+    returns the MEAN over time (L2_timeavg) instead of the max over time --
+    i.e. the average relative L2 error across all saved timesteps, rather
+    than the single worst timestep. compute_error's max-over-time value can
+    be dominated by one transient moment (possibly not even one of the
+    plotted snapshots); this gives a complementary, less worst-case-driven
+    view of the same underlying error.
+    """
+    num, den = 0.0, 0.0
+    for s in range(self.mesh.n_sub):
+      for e_k in ("interior", "interface"):
+        for x_k in ("u", "v"):
+          x_fom = uv_fom[e_k][x_k][s]
+          x_rom = uv_rom[e_k][x_k][s]
+          num += np.sum(np.square(x_rom - x_fom), axis=axis)
+          if relative:
+            den += np.sum(np.square(x_fom), axis=axis)
+    if scaling:
+      num *= self.mesh.hxy
+      if relative:
+        den *= self.mesh.hxy
+    err = num/den if relative else num
+    return np.mean(np.sqrt(err))
+
+  def compute_error_linf(
+    self,
+    uv_fom,
+    uv_rom,
+    scaling=False,
+    relative=True,
+    axis=None
+  ):
+    """
+    Max-over-SPACE counterpart to compute_error (which is max-over-TIME of
+    an L2-in-space error): num is the max squared pointwise difference over
+    all subdomains/interior+interface/u,v (not summed), den is the same
+    pooled mean-square (RMS-squared) FOM value used by plot_field_fom_rom's
+    err_rel. Since den does not depend on the spatial index, this reproduces
+    exactly the per-timestep peak of the err_rel(x,t) field plotted by
+    plot_field_fom_rom: max_x err_rel(x,t) = sqrt(num(t)/den(t)). Returning
+    the max over time then gives the single largest value that appears in
+    any err_rel snapshot for this case -- a genuine, exactly-matching
+    counterpart to the plotted field's peak, unlike compute_error itself
+    (an L2/RMS aggregate, which a single pixel is not expected to match).
+    """
+    num, den = None, 0.0
+    for s in range(self.mesh.n_sub):
+      for e_k in ("interior", "interface"):
+        for x_k in ("u", "v"):
+          x_fom = uv_fom[e_k][x_k][s]
+          x_rom = uv_rom[e_k][x_k][s]
+          sq_diff_max = np.amax(np.square(x_rom - x_fom), axis=axis)
+          num = sq_diff_max if (num is None) else np.maximum(num, sq_diff_max)
+          if relative:
+            den += np.sum(np.square(x_fom), axis=axis)
+    if scaling and relative:
+      den /= (2 * self.mesh.nxy)
+    err = num/den if relative else num
+    return np.amax(np.sqrt(err))
+
+  def compute_error_linf_timeavg(
+    self,
+    uv_fom,
+    uv_rom,
+    scaling=False,
+    relative=True,
+    axis=None
+  ):
+    """
+    Same as compute_error_linf, but returns the MEAN over time instead of
+    the max -- i.e. the average, across timesteps, of each timestep's own
+    worst-pixel relative error: mean_t[max_x err_rel(x,t)].
+    """
+    num, den = None, 0.0
+    for s in range(self.mesh.n_sub):
+      for e_k in ("interior", "interface"):
+        for x_k in ("u", "v"):
+          x_fom = uv_fom[e_k][x_k][s]
+          x_rom = uv_rom[e_k][x_k][s]
+          sq_diff_max = np.amax(np.square(x_rom - x_fom), axis=axis)
+          num = sq_diff_max if (num is None) else np.maximum(num, sq_diff_max)
+          if relative:
+            den += np.sum(np.square(x_fom), axis=axis)
+    if scaling and relative:
+      den /= (2 * self.mesh.nxy)
+    err = num/den if relative else num
+    return np.mean(np.sqrt(err))
