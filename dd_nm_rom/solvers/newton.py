@@ -115,6 +115,23 @@ class Newton(Solver):
       if np.isnan(res_norm):
         flag = 2
         break
+      # Check if residual has plateaued (no decrease in past 5 iterations)
+      if len(res_norm_hist) >= 6:
+        # Check if there's no improvement in all of the last 5 consecutive iterations
+        # Relative tolerance: 0.001% improvement required
+        plateau_rel_tol = 1e-5
+        no_improvement = True
+        for i in range(5):
+          improvement = res_norm_hist[-6+i] - res_norm_hist[-5+i]
+          relative_improvement = improvement / res_norm_hist[-6+i] if res_norm_hist[-6+i] != 0 else 0
+          if relative_improvement >= plateau_rel_tol:
+            no_improvement = False
+            break
+        if no_improvement:
+          # Residual plateaued - continue with current solution
+          flag = 4
+          # Exit the loop but keep the current solution
+          break
     if (it == self.maxit):
       flag = 3
     # Return result
