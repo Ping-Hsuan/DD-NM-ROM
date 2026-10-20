@@ -48,6 +48,8 @@ class DD_LS_ROM(object):
     self.ls_configs = create_dict(tmp_dict)
     # Load NN for interior and port -> Load Basis in LS-ROM case
     self.ls_models = self.init_ls_models(self.ls_configs)
+    # Forcing term
+    self.force = self.dd_fom.f is not None
     # DD-ROM Constraints
     # -------------
     self.constraint_type = constraint_type
@@ -289,16 +291,23 @@ class DD_LS_ROM(object):
     z_old = None
     if (not self.steady):
       z_old = self.extract_z_sub_from_vec(self.x_old)
+    if self.force:
+      force, *_ = self.dd_fom.assemble_sol(self.dd_fom.f, map_on_res=False)
     runtime_s = 0.0
     for (s, sub) in enumerate(self.subdomains):
       start_s = time()
+      force_s = None
+      if self.force:
+        force_s = self.dd_fom.extract_uv_sub_from_dict(force, s)
       # > Compute quantities needed for KKT system
       res_s, cres_s, hess_s, cjac_s = sub.res_jac(
         z=z[s],
         lambdas=lambdas,
         steady=self.steady,
         dt=self.dt,
-        z_old=z_old[s] if (z_old is not None) else None
+        z_old=z_old[s] if (z_old is not None) else None,
+        force=force_s,
+        class_name = self.dd_fom.__class__.__name__
       )
       runtime_s = max(time()-start_s, runtime_s)
       # > Store subdomain-related quantities
