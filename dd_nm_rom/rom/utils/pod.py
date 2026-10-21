@@ -158,8 +158,8 @@ def perform_svd(data: np.ndarray) -> Dict[str, np.ndarray]:
   :rtype: Dict[str, np.ndarray]
   """
 # u, s, _ = sp.linalg.svd(data, full_matrices=False)
-  dask_data = da.from_array(data, chunks=(1000, 20200))
-# k = min(data.shape)
+# dask_data = da.from_array(data, chunks=(1000, 20200))
+  dask_data = da.from_array(data, chunks=(500, 'auto'))
   k = 500
   u, s, _ = da.linalg.svd_compressed(dask_data, k=k)
   u = u.compute()
