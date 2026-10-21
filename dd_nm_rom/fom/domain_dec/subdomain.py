@@ -29,8 +29,11 @@ class Subdomain(object):
   ) -> None:
     self.identifier = identifier
     self.monolithic = monolithic
-    for k in ("ops_names", "mesh", "compact"):
+    for k in ("ops_names", "mesh"):
       setattr(self, k, getattr(self.monolithic, k))
+    self.compact = getattr(self.monolithic, "compact", False)
+    self.cx = getattr(self.monolithic, "cx", 0.0)
+    self.cy = getattr(self.monolithic, "cy", 0.0)
     self.nodes_ind = nodes_ind
     self.cmat = cmat
     self.ports = ports
@@ -43,6 +46,16 @@ class Subdomain(object):
       nodes_res=self.nodes_ind["res"],
       nodes_state=self.nodes_ind[e_k]
     ) for e_k in ("res", "interior", "interface")}
+    # Physical-boundary mask (global, over the monolithic mesh), restricted
+    # to this subdomain's "res" node ordering -- the row space shared by
+    # both the residual and the interior/interface Jacobian blocks (whose
+    # rows are always indexed by "res", per SubdomainElementState.submat).
+    # Only set (non-None) for Dirichlet-BC monolithic FOMs that pin the
+    # outermost node ring at zero (e.g. AdvDiff2D) -- see
+    # monolithic.AdvDiff2D.build().
+    bdry_global = getattr(self.monolithic, "_bdry", None)
+    self.bdry = (bdry_global[self.elem_states["res"].nodes_state]
+                 if bdry_global is not None else None)
 
   # Residual/Jacobian
   # ===================================
@@ -223,6 +236,12 @@ class Subdomain(object):
         u, v = [uv["res"][x_i] for x_i in ("u", "v")]
       if class_name == 'DDPoisson2D':
         dx[x_k] = ops_uv[x_k]["D"] + bc_f[x_k]["D"] - force["res"][x_k]
+      elif class_name == 'DDAdvDiff2D':
+        dx[x_k] = self.cx * (ops_uv[x_k]["Ax"] - bc_f[x_k]["A"]["x"]) \
+                + self.cy * (ops_uv[x_k]["Ay"] - bc_f[x_k]["A"]["y"]) \
+                + ops_uv[x_k]["D"] + bc_f[x_k]["D"] + force["res"][x_k]
+        if self.bdry is not None:
+          dx[x_k][self.bdry] = 0.0
       else:
         adv_act_x = ops_uv[x_k]["Ax"] - bc_f[x_k]["A"]["x"]
         adv_act_y = ops_uv[x_k]["Ay"] - bc_f[x_k]["A"]["y"]
@@ -261,16 +280,25 @@ class Subdomain(object):
     jac = {}
     bc_f = elem_states["res"].bc_f
 
-    if class_name == 'DDPoisson2D':
+    if class_name in ('DDPoisson2D', 'DDAdvDiff2D'):
       for e_k in ("interior", "interface"):
         state_k = elem_states[e_k]
         m = state_k.iden.shape[0]
         n = state_k.iden.shape[1]
-        jac_xx_k = state_k.ops["D"]
-        jac_uu_k = jac_xx_k
+        if class_name == 'DDAdvDiff2D':
+          jac_xx_k = self.cx*state_k.ops["Ax"] + self.cy*state_k.ops["Ay"] \
+                   + state_k.ops["D"]
+          if self.bdry is not None and self.bdry.any():
+            # Rows of jac_xx_k are indexed by "res" (see submat in
+            # SubdomainElementState), matching self.bdry.
+            jac_xx_k = jac_xx_k.tolil()
+            jac_xx_k[self.bdry, :] = 0.0
+            jac_xx_k = jac_xx_k.tocsr()
+          jac_uu_k = jac_vv_k = jac_xx_k
+        else:
+          jac_uu_k = jac_vv_k = state_k.ops["D"]
         jac_uv_k = sp.csr_matrix((m, n))
         jac_vu_k = sp.csr_matrix((m, n))
-        jac_vv_k = jac_xx_k
         jac[e_k] = sp.bmat(
           [[jac_uu_k, jac_uv_k],
           [jac_vu_k, jac_vv_k]],

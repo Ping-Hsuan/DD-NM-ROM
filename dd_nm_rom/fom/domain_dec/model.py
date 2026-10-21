@@ -823,3 +823,22 @@ class DDPoisson2D(object):
         indices = np.concatenate([indices, indices+self.mesh.nxy])
         data["port"].append(solutions[:,indices])
     return data
+
+
+class DDAdvDiff2D(DDPoisson2D):
+  """
+  Class to compute domain decomposition model from 2D unsteady linear
+  advection-diffusion FOM (AdvDiff2D).
+
+  The residual is linear and decoupled in u/v -- structurally identical
+  to DDPoisson2D (subdomain assembly, constraints, force mapping are all
+  PDE-agnostic) plus the constant advection operator terms, which are
+  dispatched by `Subdomain._compute_res`/`_compute_jac` on
+  `class_name == "DDAdvDiff2D"` (reading `cx`/`cy` off the monolithic
+  FOM). No overrides are needed here: `self.__class__.__name__` already
+  resolves to "DDAdvDiff2D" for the `class_name` argument passed down to
+  each subdomain's residual/Jacobian assembly.
+  """
+  pass
+
+
