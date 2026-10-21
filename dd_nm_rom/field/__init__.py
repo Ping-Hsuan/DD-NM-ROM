@@ -8,7 +8,21 @@ __all__ = [
   "PoissonWaveDirichletPositive",
   "MultiPeak",
   "MultiPeakGen",
-  "MultiPeakGen2"
+  "MultiPeakGen2",
+  "AdvDiffUnsteadyField",
+  "AdvDiffUnsteadyFieldNeumann",
+  "AdvDiffUnsteadyFieldPeriodicBump",
+  "AdvDiffUnsteadyFieldPeriodicWave",
+  "AdvDiffUnsteadyFieldMaskedBump",
+  "PeriodicAdvDiffUnsteadyField",
+  "ReactAdvDiffUnsteadyField",
+  "ReactAdvDiffUnsteadyFieldNeumann",
+  "ReactAdvDiffUnsteadyFieldPeriodicBump",
+  "ReactAdvDiffUnsteadyFieldPeriodicWave",
+  "ReactAdvDiffUnsteadyFieldMaskedBump",
+  "FisherKPPUnsteadyFieldMaskedBump",
+  "FisherKPPUnsteadyFieldStep",
+  "PeriodicReactAdvDiffUnsteadyField"
 ]
 
 from .exact import Burgers2DExact
@@ -21,7 +35,19 @@ from .multi_peak import MultiPeak
 from .multi_peak_sgn import MultiPeakSgn
 from .multi_peak_gen import MultiPeakGen
 from .multi_peak_gen2 import MultiPeakGen2
+from .adv_diff_unsteady import (
+  AdvDiffUnsteadyField, AdvDiffUnsteadyFieldNeumann,
+  AdvDiffUnsteadyFieldPeriodicBump, AdvDiffUnsteadyFieldPeriodicWave,
+  AdvDiffUnsteadyFieldMaskedBump,
+  PeriodicAdvDiffUnsteadyField,
+  ReactAdvDiffUnsteadyField, ReactAdvDiffUnsteadyFieldNeumann,
+  ReactAdvDiffUnsteadyFieldPeriodicBump, ReactAdvDiffUnsteadyFieldPeriodicWave,
+  ReactAdvDiffUnsteadyFieldMaskedBump,
+  FisherKPPUnsteadyFieldMaskedBump,
+  FisherKPPUnsteadyFieldStep,
+  PeriodicReactAdvDiffUnsteadyField
+)
 
 # Data types
 from typing import Union
-FIELD_TYPES = Union[Burgers2DExact, SinMultiPeak, SinPeak, PoissonForce, MultiPeak, MultiPeakSgn, MultiPeakGen, MultiPeakGen2, PoissonWaveDirichlet, PoissonWaveMixed, PoissonWaveDirichletPositive]
+FIELD_TYPES = Union[Burgers2DExact, SinMultiPeak, SinPeak, PoissonForce, MultiPeak, MultiPeakSgn, MultiPeakGen, MultiPeakGen2, PoissonWaveDirichlet, PoissonWaveMixed, PoissonWaveDirichletPositive, AdvDiffUnsteadyField, AdvDiffUnsteadyFieldNeumann, AdvDiffUnsteadyFieldPeriodicBump, AdvDiffUnsteadyFieldPeriodicWave, AdvDiffUnsteadyFieldMaskedBump, PeriodicAdvDiffUnsteadyField, ReactAdvDiffUnsteadyField, ReactAdvDiffUnsteadyFieldNeumann, ReactAdvDiffUnsteadyFieldPeriodicBump, ReactAdvDiffUnsteadyFieldPeriodicWave, ReactAdvDiffUnsteadyFieldMaskedBump, FisherKPPUnsteadyFieldMaskedBump, FisherKPPUnsteadyFieldStep, PeriodicReactAdvDiffUnsteadyField]
