@@ -366,17 +366,34 @@ class Poisson2D(object):
     field: field_mod.FIELD_TYPES
   ) -> bc_mod.BC_TYPES:
     if (field.bc_type == "dirichlet"):
-      bc_cls = bc_mod.DirichletBC
+      bc = bc_mod.DirichletBC(
+        nu=self.nu,
+        mesh=self.mesh,
+        funval=field.get_bc_funval(),
+        advection=False
+      )
     elif (field.bc_type == "neumann"):
-      bc_cls = bc_mod.NeumannBC
+      bc = bc_mod.NeumannBC(
+        nu=self.nu,
+        mesh=self.mesh,
+        funval=field.get_bc_funval(),
+        advection=False
+      )
+    elif (field.bc_type == "mixed"):
+      bc = bc_mod.MixedBC(
+        nu=self.nu,
+        mesh=self.mesh,
+        funval=field.get_bc_funval(),
+        bc_spec=field.get_bc_spec(),
+        advection=False
+      )
     else:
-      bc_cls = bc_mod.PeriodicBC
-    bc = bc_cls(
-      nu=self.nu,
-      mesh=self.mesh,
-      funval=field.get_bc_funval(),
-      advection=False
-    )
+      bc = bc_mod.PeriodicBC(
+        nu=self.nu,
+        mesh=self.mesh,
+        funval=field.get_bc_funval(),
+        advection=False
+      )
     bc.build()
     return bc
 
