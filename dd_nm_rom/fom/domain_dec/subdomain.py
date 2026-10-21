@@ -34,6 +34,13 @@ class Subdomain(object):
     self.compact = getattr(self.monolithic, "compact", False)
     self.cx = getattr(self.monolithic, "cx", 0.0)
     self.cy = getattr(self.monolithic, "cy", 0.0)
+    # sigma_u/sigma_v: prefer the per-component attributes (ReactAdvDiff2D,
+    # supporting independent reaction coefficients), falling back to the
+    # older shared "sigma" attribute if present, else 0.0 (no reaction).
+    self.sigma_u = getattr(self.monolithic, "sigma_u",
+                           getattr(self.monolithic, "sigma", 0.0))
+    self.sigma_v = getattr(self.monolithic, "sigma_v",
+                           getattr(self.monolithic, "sigma", 0.0))
     self.nodes_ind = nodes_ind
     self.cmat = cmat
     self.ports = ports
@@ -242,6 +249,15 @@ class Subdomain(object):
                 + ops_uv[x_k]["D"] + bc_f[x_k]["D"] + force["res"][x_k]
         if self.bdry is not None:
           dx[x_k][self.bdry] = 0.0
+      elif class_name == 'DDReactAdvDiff2D':
+        sigma_k = self.sigma_u if x_k == "u" else self.sigma_v
+        dx[x_k] = self.cx * (ops_uv[x_k]["Ax"] - bc_f[x_k]["A"]["x"]) \
+                + self.cy * (ops_uv[x_k]["Ay"] - bc_f[x_k]["A"]["y"]) \
+                + ops_uv[x_k]["D"] + bc_f[x_k]["D"] \
+                - sigma_k * (u if x_k == "u" else v) \
+                + force["res"][x_k]
+        if self.bdry is not None:
+          dx[x_k][self.bdry] = 0.0
       else:
         adv_act_x = ops_uv[x_k]["Ax"] - bc_f[x_k]["A"]["x"]
         adv_act_y = ops_uv[x_k]["Ay"] - bc_f[x_k]["A"]["y"]
@@ -280,7 +296,7 @@ class Subdomain(object):
     jac = {}
     bc_f = elem_states["res"].bc_f
 
-    if class_name in ('DDPoisson2D', 'DDAdvDiff2D'):
+    if class_name in ('DDPoisson2D', 'DDAdvDiff2D', 'DDReactAdvDiff2D'):
       for e_k in ("interior", "interface"):
         state_k = elem_states[e_k]
         m = state_k.iden.shape[0]
@@ -295,6 +311,19 @@ class Subdomain(object):
             jac_xx_k[self.bdry, :] = 0.0
             jac_xx_k = jac_xx_k.tocsr()
           jac_uu_k = jac_vv_k = jac_xx_k
+        elif class_name == 'DDReactAdvDiff2D':
+          # sigma_u may differ from sigma_v -- build the diagonal block
+          # separately per component instead of reusing one shared matrix.
+          def _jac_xx_react(sigma_k):
+            m_k = (self.cx*state_k.ops["Ax"] + self.cy*state_k.ops["Ay"]
+                   + state_k.ops["D"] - sigma_k*state_k.iden)
+            if self.bdry is not None and self.bdry.any():
+              m_k = m_k.tolil()
+              m_k[self.bdry, :] = 0.0
+              m_k = m_k.tocsr()
+            return m_k
+          jac_uu_k = _jac_xx_react(self.sigma_u)
+          jac_vv_k = _jac_xx_react(self.sigma_v)
         else:
           jac_uu_k = jac_vv_k = state_k.ops["D"]
         jac_uv_k = sp.csr_matrix((m, n))

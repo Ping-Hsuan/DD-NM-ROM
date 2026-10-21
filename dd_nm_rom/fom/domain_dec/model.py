@@ -842,3 +842,15 @@ class DDAdvDiff2D(DDPoisson2D):
   pass
 
 
+class DDReactAdvDiff2D(DDPoisson2D):
+  """
+  Class to compute domain decomposition model from 2D unsteady linear
+  reaction-advection-diffusion FOM (ReactAdvDiff2D).
+
+  Same rationale as DDAdvDiff2D: structurally identical to DDPoisson2D,
+  with the advection+reaction operator terms dispatched by
+  `Subdomain._compute_res`/`_compute_jac` on
+  `class_name == "DDReactAdvDiff2D"` (reading `cx`/`cy`/`sigma` off the
+  monolithic FOM). No overrides needed here.
+  """
+  pass

@@ -746,3 +746,257 @@ class AdvDiff2D(object):
     return uv, res, converged
 
 
+class ReactAdvDiff2D(object):
+  """
+  Generate FOM for the 2D unsteady linear reaction-advection-diffusion
+  equation:
+
+    du/dt + cx*du/dx + cy*du/dy - nu*Lap(u) + sigma_u*u = f
+    dv/dt + cx*dv/dx + cy*dv/dy - nu*Lap(v) + sigma_v*v = f
+
+  Identical to AdvDiff2D plus a reaction term. sigma_u/sigma_v may differ
+  (independent per-component reaction) or be equal (the original shared-
+  sigma design). Set directly via the constructor, or read from
+  `field.get_reaction()`, which may return either a single scalar (shared
+  by both components, backward-compatible with fields written against the
+  original single-sigma design, e.g. ReactAdvDiffUnsteadyField) or a
+  (sigma_u, sigma_v) pair (e.g. ReactAdvDiffUnsteadyFieldMaskedBump). Still
+  linear and decoupled in u/v.
+
+  Dirichlet BC handling mirrors AdvDiff2D: plain ghost-point elimination by
+  default (same as Poisson2D/Burgers2D); pass `pin_boundary=True` to
+  additionally freeze the outermost node ring, matching the convention used
+  by examples/LLM_data/scripts/generate_linear_unsteady.py for
+  ReactAdvDiff_unsteady.
+  """
+
+  # Initialization
+  # ===================================
+  def __init__(
+    self,
+    mesh: mesh_mod.MESH_TYPES,
+    nu: float,
+    sigma: float = 1.0,
+    cx: float = 1.0,
+    cy: float = 0.0,
+    pin_boundary: bool = False
+  ) -> None:
+    # Mesh
+    self.mesh = mesh
+    self.mesh.is_built()
+    # Viscosity / reaction / advection
+    self.nu = nu
+    self.sigma_u = self.sigma_v = float(sigma)
+    self.cx, self.cy = float(cx), float(cy)
+    self.pin_boundary = bool(pin_boundary)
+    # Integration
+    self.steady = True
+    self.x_old = None
+    self.dt = 0.0
+    # Runtime
+    self.runtime = {k: 0.0 for k in ("total", "lin_solve", "res_jac")}
+    self.built = False
+    # Force term
+    self.f = None
+
+  # Building
+  # ===================================
+  def is_built(self) -> None:
+    if (not self.built):
+      raise ValueError(
+        "FOM model not built. Please, call 'build' method first."
+      )
+
+  def build(
+    self,
+    field: field_mod.FIELD_TYPES,
+    force: np.ndarray = None
+  ) -> None:
+    # BC
+    self.bc = self.build_bc(field)
+    self.bc_f = self.bc.f
+    # Advection / reaction coefficients (fixed per case, sampled by the
+    # field if it provides them)
+    if hasattr(field, "get_advection"):
+      self.cx, self.cy = field.get_advection()
+    if hasattr(field, "get_reaction"):
+      sigma_react = field.get_reaction()
+      if isinstance(sigma_react, (tuple, list, np.ndarray)):
+        self.sigma_u, self.sigma_v = float(sigma_react[0]), float(sigma_react[1])
+      else:
+        self.sigma_u = self.sigma_v = float(sigma_react)
+    # Operators
+    self.diff_ops = DiffOperators(
+      nu=self.nu,
+      bc=self.bc,
+      mesh=self.mesh,
+      upwind=False,
+      upwind_order=1
+    )
+    self.diff_ops.build()
+    self.ops = self.diff_ops.ops
+    self.ops_names = list(self.ops.keys())
+    # Identities
+    self.iden = sp.eye(self.mesh.nxy).tocsr()
+    self.iden_uv = sp.eye(self.get_ndof()).tocsr()
+
+    # Set forcing term: explicit argument takes precedence, else pulled
+    # from the field (force-driven unsteady datasets), else zero.
+    if force is not None:
+      self.f = force
+    elif hasattr(field, "get_force"):
+      self.f = field.get_force()
+    else:
+      self.f = np.zeros(self.get_ndof())
+
+    # Outermost node ring: opt-in only (pin_boundary=True). Off by default,
+    # so Dirichlet BC is imposed the same way as Poisson2D/Burgers2D (plain
+    # ghost elimination, every node a genuine unknown). See AdvDiff2D.
+    if self.pin_boundary and self.bc.name == "dirichlet":
+      x, y = self.mesh.nodes_val.T
+      tol = 1e-10
+      self._bdry = ((x <= x.min()+tol) | (x >= x.max()-tol) |
+                    (y <= y.min()+tol) | (y >= y.max()-tol))
+    else:
+      self._bdry = np.zeros(self.mesh.nxy, dtype=bool)
+    # Constant (linear) spatial Jacobian, with pinned rows zeroed so that,
+    # after the backward-Euler transform in res_jac(), those rows reduce
+    # to the identity (i.e. x[bdry] stays fixed at its initial value).
+    # Built separately per component since sigma_u may differ from sigma_v.
+    def _build_jac_xx(sigma_k):
+      jac_xx_k = (self.cx*self.ops["Ax"] + self.cy*self.ops["Ay"] + self.ops["D"]
+                  - sigma_k*self.iden)
+      if self._bdry.any():
+        jac_xx_k = jac_xx_k.tolil()
+        jac_xx_k[self._bdry, :] = 0.0
+        jac_xx_k = jac_xx_k.tocsr()
+      return jac_xx_k
+    self._jac_xx_u = _build_jac_xx(self.sigma_u)
+    self._jac_xx_v = _build_jac_xx(self.sigma_v)
+    self.built = True
+
+  def build_bc(
+    self,
+    field: field_mod.FIELD_TYPES
+  ) -> bc_mod.BC_TYPES:
+    if (field.bc_type == "dirichlet"):
+      bc_cls = bc_mod.DirichletBC
+    elif (field.bc_type == "neumann"):
+      bc_cls = bc_mod.NeumannBC
+    else:
+      bc_cls = bc_mod.PeriodicBC
+    bc = bc_cls(
+      nu=self.nu,
+      mesh=self.mesh,
+      funval=field.get_bc_funval()
+    )
+    bc.build()
+    return bc
+
+  def get_ndof(self) -> int:
+    return 2*self.mesh.nxy
+
+  # Residual/Jacobian
+  # ===================================
+  def res_jac(
+    self,
+    x: np.ndarray
+  ) -> RES_JAC_TYPE:
+    start = time()
+    res, jac = self.compute_res_jac(x)
+    # Backward Euler for integration
+    if (not self.steady):
+      res = x - self.x_old - self.dt*res
+      jac = self.iden_uv - self.dt*jac
+    delta = time()-start
+    self.runtime["total"] += delta
+    self.runtime["res_jac"] += delta
+    return res, jac
+
+  def compute_res_jac(
+    self,
+    x: np.ndarray
+  ) -> RES_JAC_TYPE:
+    # Extract u and v
+    uv = self.extract_uv(x, diag=False)
+
+    # Split force into u and v components
+    f_uv = {"u": self.f[:self.mesh.nxy], "v": self.f[self.mesh.nxy:]}
+    sigma_uv = {"u": self.sigma_u, "v": self.sigma_v}
+    # Compute residual
+    dx = []
+    for k in ("u", "v"):
+      dx_k = self.cx * (self.ops["Ax"] @ uv[k] - self.bc_f[k]["A"]["x"]) \
+           + self.cy * (self.ops["Ay"] @ uv[k] - self.bc_f[k]["A"]["y"]) \
+           + self.ops["D"] @ uv[k] + self.bc_f[k]["D"] \
+           - sigma_uv[k] * uv[k] + f_uv[k]
+      dx_k[self._bdry] = 0.0
+      dx.append(dx_k)
+    res = np.concatenate(dx)
+    # Jacobian (constant: linear, decoupled u/v; pinned rows already zeroed)
+    jac_uv = sp.csr_matrix((self.mesh.nxy, self.mesh.nxy))
+    jac = sp.bmat(
+      [[self._jac_xx_u, jac_uv],
+       [jac_uv, self._jac_xx_v]],
+      format="csr"
+    )
+    return res, jac
+
+  def extract_uv(
+    self,
+    x: np.ndarray,
+    diag: bool = True
+  ) -> Union[Tuple[UV_TYPE, UV_TYPE], UV_TYPE]:
+    uv = {"u": x[:self.mesh.nxy], "v": x[self.mesh.nxy:]}
+    if diag:
+      uv_diag = ops.map_nested_dict(uv, ops.sp_diag)
+      return uv, uv_diag
+    else:
+      return uv
+
+  # Solving
+  # ===================================
+  def solve(
+    self,
+    x0: Union[np.ndarray, None] = None,
+    dt: float = 0.0,
+    nt: int = 1,
+    steady: bool = True,
+    tol: float = 1e-8,
+    maxit: int = 50,
+    stepsize_min: float = 1e-10,
+    iostep: int = 1,
+    verbose: bool = False
+  ) -> SOL_TYPE:
+    """
+    Solves for the u and v states of the FOM using Newton's method.
+    (Linear residual, so this converges in a single Newton step per
+    time instant.)
+    """
+    self.is_built()
+    self.runtime = ops.map_nested_dict(self.runtime, lambda _: 0.0)
+    # Initialize solution
+    start = time()
+    if (x0 is None):
+      x0 = np.zeros(self.get_ndof())
+    self.runtime["total"] += time()-start
+    # Initialize solver
+    solver = solvers.Newton(
+      model=self,
+      tol=tol,
+      maxit=maxit,
+      stepsize_min=stepsize_min,
+      iostep=iostep,
+      verbose=verbose
+    )
+    # Solving
+    self.steady = bool(steady)
+    if self.steady:
+      dt, nt = 0.0, 1
+    x, res, *_, flag = solver(x0, dt, nt)
+    # Return solution
+    uv = self.extract_uv(x, diag=False)
+    converged = True if (flag[-1] == 0) else False
+    return uv, res, converged
+
+
