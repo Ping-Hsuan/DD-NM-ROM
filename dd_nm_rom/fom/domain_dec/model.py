@@ -801,7 +801,7 @@ class DDPoisson2D(object):
     solutions: np.ndarray,
     map_on_ports: bool = False
   ) -> Dict[str, List[np.ndarray]]:
-    """ 
+    """
     Map a monolithic solution to domain decomposition elements
     """
     self.is_built()

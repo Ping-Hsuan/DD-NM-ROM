@@ -1,10 +1,10 @@
 import numpy as np
 import scipy.sparse as sp
 
-from ..monolithic import Burgers2D
+from ..monolithic import Burgers2D, Poisson2D, AdvDiff2D, ReactAdvDiff2D
 from typing import Dict, List, Tuple, Union
 
-FOM_TYPE = Burgers2D
+FOM_TYPE = Union[Burgers2D, Poisson2D, AdvDiff2D, ReactAdvDiff2D]
 CMAT_TYPE = Dict[str, Union[List[sp.spmatrix], sp.spmatrix]]
 KKT_TYPE = Tuple[np.ndarray, np.ndarray, sp.spmatrix, sp.spmatrix]
 UV_TYPE = Dict[str, Dict[str, Union[List[np.ndarray], np.ndarray]]]
