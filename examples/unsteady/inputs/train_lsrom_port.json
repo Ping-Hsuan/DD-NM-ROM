@@ -34,7 +34,10 @@
   "fom": {
     "name": "Burgers2D",
     "kwargs": {
-      "nu": 1e-3
+      "nu": 1e-3,
+      "upwind": false,
+      "upwind_order": 2,
+      "compact": false
     }
   },
   "dd_fom": {
@@ -43,7 +46,7 @@
       "constraint_type": "strong"
     }
   },
-  "svd_emins": [1e-1, 5e-2, 1e-2, 5e-3, 1e-3, 1e-4],
+  "svd_emins": [1e-1, 5e-2, 1e-2, 5e-3, 1e-3, 5e-4, 1e-4],
   "svd": {
     "nb_samples": -1,
     "energy_min": {
