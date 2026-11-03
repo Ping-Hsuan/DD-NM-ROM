@@ -37,6 +37,13 @@
       "nu": 1e-3
     }
   },
+  "dd_fom": {
+    "name": "DDBurgers2D",
+    "kwargs": {
+      "constraint_type": "strong"
+    }
+  },
+  "svd_emins": [1e-1, 5e-2, 1e-2, 5e-3, 1e-3, 1e-4],
   "svd": {
     "nb_samples": -1,
     "energy_min": {
@@ -60,12 +67,15 @@
     "subdomains": null,
     "merged": true
   },
-  "data_load": {
-  "n_workers": 32,
-    "ranges": [0,10],
-    "key": "snapshots",
-    "path": "/home/pinghsuan/Research/DD-NM-ROM_old/run/unsteady/dset.2by2/datagen/train/"
-  },
+  "data_loads": [
+    {
+      "n_workers": 32,
+      "ranges": [0,100],
+      "key": "snapshots",
+      "steady": false,
+      "path": "/home/pinghsuan/Research/DD-NM-ROM/run/unsteady_1e-3_compact_noabs/dset.2by2/datagen/train/"
+    }
+  ],
   "model": {
     "path": "/home/pinghsuan/Research/DD-NM-ROM_old/run/unsteady/dset.2by2/lsrom/run.01/"
   }
